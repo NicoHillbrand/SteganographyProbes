@@ -13,4 +13,4 @@ If we can stop models from building up context on their control environment and 
 
 ## Project Status
 
-Early stage — building dataset and initial probe infrastructure.
+Early stage, building dataset and initial probe infrastructure.
