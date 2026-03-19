@@ -48,7 +48,7 @@ Build a dataset of steganographic vs. non-steganographic examples:
 - Model: likely an open-weights model with accessible internals (e.g., Llama, Gemma, Pythia)
 - Activation extraction: TransformerLens or nnsight
 - Probing: sklearn / PyTorch
-- Dataset generation: API calls to capable model (Claude, GPT-4) for steganography examples
+- Dataset generation: API calls to capable model (Claude, GPT-4) for steganography examples + own brainstorming for setups
 
 ## Open Questions
 
