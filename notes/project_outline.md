@@ -22,7 +22,7 @@ Build a dataset of steganographic vs. non-steganographic examples:
 
 - Run dataset through model, extract activations at each layer
 - Store activations with labels (stego vs. clean)
-- Key decisions: which layers, which token positions, residual stream vs. attention vs. MLP outputs
+- Key decisions: which model, which layers, which token positions, residual stream vs. attention vs. MLP outputs
 
 ### Phase 3: Probe Training
 
