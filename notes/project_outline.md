@@ -1,16 +1,5 @@
 # Project Outline
 
-## Goal
-
-Train activation probes that detect when a model recognizes or produces steganographic content, without relying on the model's own outputs (which are vulnerable to collusion).
-
-## Why Probes?
-
-- A model likely stores information about whether a message is steganography in its activations
-- The model can in some sense "recognize" its own steganography even if it doesn't report it
-- Probes extract this signal directly from internals, sidestepping trust issues
-- Analogous to refusal direction research — finding linear directions in activation space that correspond to a concept
-
 ## Phases
 
 ### Phase 1: Dataset & Environment
