@@ -4,15 +4,12 @@ Activation probes for detecting when language models recognize or produce stegan
 
 ## Motivation
 
-If models build up context about their control environment and its cybersecurity, they could use steganography to covertly communicate information. Anti-steganography measures are important for AI safety, but using an untrusted model for detection runs into collusion issues — the model might cooperate with steganographic signals rather than flag them.
-
-This project explores a different approach: **training activation probes** that detect when a model internally recognizes steganography, bypassing the need to trust the model's outputs. The model likely has information about whether a message is steganography stored in its activations, and probes can extract this signal directly.
+If we can stop models from building up context on their control environment and its cybersecurity that'd be great. Anti-steganography seems helpful for this. A model might have information on whether a message is steganography from itself stored in its activations and in a sense be able to recognise it. Just using the untrusted model for detection runs into collusion issues. Thus I we test using activation probes that try to detect the model recognising steganography.
 
 ## Research Questions
 
 - Can linear probes on model activations detect when a model recognizes steganographic content?
 - Do different methods of eliciting steganography (explicit instructions, implicit instructions, training) produce different internal signatures?
-- How does this relate to existing work on refusal directions and linear representation hypotheses?
 
 ## Project Status
 
