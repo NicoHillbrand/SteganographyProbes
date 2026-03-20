@@ -22,7 +22,6 @@ import os
 import time
 import numpy as np
 import torch
-from pathlib import Path
 
 parser = argparse.ArgumentParser(description="Run inference and extract activations")
 parser.add_argument("--model", type=str, default="meta-llama/Llama-3.1-8B-Instruct",
@@ -97,9 +96,10 @@ def extract_activations(model, tokenizer, texts, layer_indices, token_position, 
 
     Returns:
         activations: dict mapping layer_index -> np.array of shape (n_texts, hidden_dim)
-                     (or (n_texts, seq_len, hidden_dim) if token_position == "all")
+                     (or dict with padded activations + sequence lengths if token_position == "all")
     """
     all_activations = {layer: [] for layer in layer_indices}
+    all_seq_lengths = [] if token_position == "all" else None
 
     for batch_start in range(0, len(texts), batch_size):
         batch_texts = texts[batch_start:batch_start + batch_size]
@@ -139,7 +139,14 @@ def extract_activations(model, tokenizer, texts, layer_indices, token_position, 
                 all_activations[layer_idx].append(mean_acts)
 
             elif token_position == "all":
-                all_activations[layer_idx].append(layer_hidden.cpu().numpy())
+                batch_hidden = layer_hidden.cpu().numpy()
+                seq_len = batch_hidden.shape[1]
+                if seq_len < max_length:
+                    pad_width = ((0, 0), (0, max_length - seq_len), (0, 0))
+                    batch_hidden = np.pad(batch_hidden, pad_width, mode="constant")
+                all_activations[layer_idx].append(batch_hidden)
+                if layer_idx == layer_indices[0]:
+                    all_seq_lengths.append(attention_mask.sum(dim=1).cpu().numpy())
 
         if (batch_start // batch_size + 1) % 10 == 0:
             print(f"  Processed {batch_start + len(batch_texts)}/{len(texts)} examples")
@@ -148,7 +155,32 @@ def extract_activations(model, tokenizer, texts, layer_indices, token_position, 
     for layer_idx in layer_indices:
         all_activations[layer_idx] = np.concatenate(all_activations[layer_idx], axis=0)
 
-    return all_activations
+    if token_position == "all":
+        return {
+            "activations": all_activations,
+            "sequence_lengths": np.concatenate(all_seq_lengths, axis=0),
+        }
+
+    return {"activations": all_activations}
+
+
+def activation_shape_for_logging(extraction_result, layer_idx):
+    """Return a human-readable activation shape."""
+    layer_acts = extraction_result["activations"][layer_idx]
+    if isinstance(layer_acts, np.ndarray):
+        return layer_acts.shape
+    return np.array(layer_acts, dtype=object).shape
+
+
+def save_activation_outputs(task_dir, extraction_result, layer_indices, token_position):
+    """Persist activations and token-position metadata."""
+    for layer_idx in layer_indices:
+        acts = extraction_result["activations"][layer_idx]
+        np.save(os.path.join(task_dir, f"layer_{layer_idx:02d}.npy"), acts)
+
+    sequence_lengths = extraction_result.get("sequence_lengths")
+    if token_position == "all" and sequence_lengths is not None:
+        np.save(os.path.join(task_dir, "sequence_lengths.npy"), sequence_lengths)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -200,7 +232,7 @@ def run_stego_detection(model, tokenizer, dataset_path, output_dir):
     """Feed stego and clean texts through model, extract activations."""
 
     print(f"\n{'='*60}")
-    print(f"TASK: Stego Detection")
+    print("TASK: Stego Detection")
     print(f"Dataset: {dataset_path}")
     print(f"{'='*60}\n")
 
@@ -236,9 +268,7 @@ def run_stego_detection(model, tokenizer, dataset_path, output_dir):
     task_dir = os.path.join(output_dir, "stego_detection")
     os.makedirs(task_dir, exist_ok=True)
 
-    # Save activations per layer
-    for layer_idx, acts in activations.items():
-        np.save(os.path.join(task_dir, f"layer_{layer_idx:02d}.npy"), acts)
+    save_activation_outputs(task_dir, activations, layer_indices, args.token_position)
 
     # Save labels and metadata
     np.save(os.path.join(task_dir, "labels.npy"), np.array(labels))
@@ -254,11 +284,13 @@ def run_stego_detection(model, tokenizer, dataset_path, output_dir):
         "max_length": args.max_length,
         "ids": [ex["id"] for ex in examples],
     }
+    if args.token_position == "all":
+        meta["sequence_lengths_file"] = "sequence_lengths.npy"
     with open(os.path.join(task_dir, "metadata.json"), "w") as f:
         json.dump(meta, f, indent=2)
 
     print(f"\nSaved activations to {task_dir}/")
-    print(f"  Layers: {len(layer_indices)} x shape {activations[layer_indices[0]].shape}")
+    print(f"  Layers: {len(layer_indices)} x shape {activation_shape_for_logging(activations, layer_indices[0])}")
     print(f"  Labels: {sum(labels)} stego, {len(labels) - sum(labels)} clean")
 
     return activations, labels
@@ -272,7 +304,7 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
     """Run game scenarios: generate Model B responses and extract activations."""
 
     print(f"\n{'='*60}")
-    print(f"TASK: Game Scenarios")
+    print("TASK: Game Scenarios")
     print(f"Scenarios: {scenarios_path}")
     print(f"{'='*60}\n")
 
@@ -337,14 +369,12 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
         keyword_present = ["attack" in r.lower().split('\n')[-1] for r in responses]
         n_keyword = sum(keyword_present)
         print(f"Keyword 'attack' in final line: {n_keyword}/{len(responses)}")
-
-        # Extract activations from the FULL prompt+response
-        full_texts = [p + r for p, r in zip(prompts, responses)]
     else:
-        # Just extract activations from the prompts (pre-generation)
-        full_texts = prompts
         responses = [None] * len(prompts)
         keyword_present = [None] * len(prompts)
+
+    # Always extract activations from the prompts before any generated response tokens.
+    probe_inputs = prompts
 
     # Extract activations
     n_layers = model.config.num_hidden_layers
@@ -352,7 +382,7 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
     print(f"Extracting activations from {len(layer_indices)} layers...")
 
     activations = extract_activations(
-        model, tokenizer, full_texts, layer_indices,
+        model, tokenizer, probe_inputs, layer_indices,
         args.token_position, args.max_length, args.batch_size
     )
 
@@ -360,8 +390,7 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
     task_dir = os.path.join(output_dir, "game_scenarios")
     os.makedirs(task_dir, exist_ok=True)
 
-    for layer_idx, acts in activations.items():
-        np.save(os.path.join(task_dir, f"layer_{layer_idx:02d}.npy"), acts)
+    save_activation_outputs(task_dir, activations, layer_indices, args.token_position)
 
     np.save(os.path.join(task_dir, "labels.npy"), np.array(labels))
 
@@ -372,12 +401,15 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
         "token_position": args.token_position,
         "model": args.model,
         "generated_responses": args.generate,
+        "probe_inputs": "prompt_only",
         "keyword_results": {
             "n_keyword_present": sum(1 for k in keyword_present if k),
             "by_condition": {},
         },
         "ids": [s["id"] for s in scenarios],
     }
+    if args.token_position == "all":
+        meta["sequence_lengths_file"] = "sequence_lengths.npy"
 
     # Keyword breakdown by condition
     for cond in set(conditions):
