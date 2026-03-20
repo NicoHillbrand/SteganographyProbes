@@ -122,6 +122,7 @@ python scripts/06_train_probes.py --task game_scenarios
 ```
 
 Step 3 only merges JSONL files that match the training-example schema (`id`, `prompt`, `response`, `is_stego`). Auxiliary files in `data/`, such as `game_scenarios.jsonl`, are skipped instead of being folded into `combined_dataset.jsonl`.
+When `--generate` is enabled for game scenarios, step 5 still extracts probe activations from the prompt only; generated responses are saved for behavioral analysis but are not fed back into the probe input. If you use `--token_position all`, the script now saves padded activations plus per-example sequence lengths so step 6 can zero padded tokens and flatten them consistently for probe training.
 
 ## Research Questions
 

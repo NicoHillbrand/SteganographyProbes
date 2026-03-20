@@ -17,7 +17,6 @@ import argparse
 import json
 import os
 import numpy as np
-from pathlib import Path
 
 parser = argparse.ArgumentParser(description="Train linear probes on activations")
 parser.add_argument("--task", type=str, required=True,
@@ -65,14 +64,35 @@ def train_probe_at_layer(X, y, test_size, seed):
     }
 
 
+def prepare_probe_features(X, token_position, sequence_lengths=None):
+    """Convert saved activations into a 2D feature matrix for probe training."""
+    if token_position == "all":
+        if X.ndim != 3:
+            raise ValueError(
+                f"Expected 3D activations for token_position='all', got shape {X.shape}"
+            )
+        if sequence_lengths is None:
+            raise ValueError("sequence_lengths are required when token_position='all'")
+
+        X = X.copy()
+        for i, seq_len in enumerate(sequence_lengths):
+            X[i, int(seq_len):, :] = 0.0
+        return X.reshape(X.shape[0], -1)
+
+    if X.ndim != 2:
+        raise ValueError(f"Expected 2D activations for token_position='{token_position}', got shape {X.shape}")
+
+    return X
+
+
 def main():
-    from sklearn.linear_model import LogisticRegression  # fail fast if not installed
+    import sklearn.linear_model  # noqa: F401  # fail fast if scikit-learn is not installed
 
     task_dir = os.path.join(args.activations_dir, args.task)
 
     if not os.path.exists(task_dir):
         print(f"Activations not found at {task_dir}")
-        print(f"Run scripts/05_run_inference.py first.")
+        print("Run scripts/05_run_inference.py first.")
         return
 
     # Load metadata
@@ -81,10 +101,19 @@ def main():
 
     labels = np.load(os.path.join(task_dir, "labels.npy"))
     layer_indices = meta["layer_indices"]
+    token_position = meta.get("token_position", "unknown")
+    sequence_lengths = None
+    if token_position == "all":
+        seq_path = meta.get("sequence_lengths_file")
+        if not seq_path:
+            print("Missing sequence lengths metadata for token_position='all'")
+            return
+        sequence_lengths = np.load(os.path.join(task_dir, seq_path))
 
     print(f"Task: {args.task}")
     print(f"Examples: {len(labels)} ({labels.sum()} positive, {len(labels) - labels.sum()} negative)")
     print(f"Layers to probe: {len(layer_indices)}")
+    print(f"Token position: {token_position}")
     print(f"Random seeds: {args.n_seeds}")
     print()
 
@@ -97,8 +126,9 @@ def main():
             print(f"  Layer {layer_idx}: file not found, skipping")
             continue
 
-        X = np.load(npy_path)
-        print(f"  Layer {layer_idx:2d}: shape {X.shape}", end="")
+        X_raw = np.load(npy_path)
+        X = prepare_probe_features(X_raw, token_position, sequence_lengths)
+        print(f"  Layer {layer_idx:2d}: shape {X_raw.shape} -> features {X.shape}", end="")
 
         # Run multiple seeds
         seed_results = []
@@ -124,7 +154,7 @@ def main():
 
     # Find best layer
     if results_by_layer:
-        best_layer = max(results_by_layer, key=lambda l: results_by_layer[l]["mean_auc_roc"])
+        best_layer = max(results_by_layer, key=lambda layer_idx: results_by_layer[layer_idx]["mean_auc_roc"])
         best = results_by_layer[best_layer]
 
         print(f"\n{'='*60}")
@@ -146,7 +176,7 @@ def main():
         "n_negative": int(len(labels) - labels.sum()),
         "n_seeds": args.n_seeds,
         "test_size": args.test_size,
-        "token_position": meta.get("token_position", "unknown"),
+        "token_position": token_position,
         "best_layer": int(best_layer) if results_by_layer else None,
         "results_by_layer": {str(k): v for k, v in results_by_layer.items()},
     }
