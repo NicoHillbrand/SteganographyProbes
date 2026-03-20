@@ -48,15 +48,14 @@ feat(eval): train headline probes with grouped splits
 | **T6** Build detect/decode prompt templates | ✅ DONE | `04b_build_decode_task.py` created. 4000 rows in `decode_task.jsonl` (2000 decode + 2000 benign). 8 colors mapped. `score_decode_response()` scoring function present. |
 | **T7** Regenerate combined dataset | ✅ DONE | `03_combine_dataset.py` has `--training_sources` flag (default: `redwood_synthetic`). TrojanStego correctly routed to `ood_test_dataset.jsonl` (990 rows). Training set is Redwood-only (2000 rows). |
 | **T8** Validate LLaMA 3 8B + LoRA on GH200 | ✅ CODE DONE | `00_validate_model.py` created. Loads bf16, attaches LoRA, tests toggle, verifies activations + chat template. **Not yet executed** (needs GH200). |
-| **T9** Generate stego carriers via LoRA | ❌ NOT DONE | `01b_generate_lora_carriers.py` does not exist. |
-| **T10** Run recognition inference | ❌ NOT DONE | `05_run_inference.py` has no decode task path. Only handles `stego_detection` and `game_scenarios`. |
-| **T11** Run presence inference | ⚠️ PARTIALLY DONE | `05_run_inference.py` already uses `torch.bfloat16` (T2.8 fixed) and has `--use_chat_template` flag + `--sources` filter. **Not yet executed.** |
-| **T12** Train & plot headline probes | ❌ NOT DONE | `08_plot_results.py` does not exist. |
+| **T9** Generate stego carriers via LoRA | ✅ CODE DONE | `01b_generate_lora_carriers.py` created. Loads LLaMA 3 8B + TrojanStego LoRA, generates interleaved stego/clean pairs (99 prompts × 3 = 594 records). **Not yet executed** (needs GH200). |
+| **T10** Run recognition inference | ✅ CODE DONE | `05_run_inference.py` now has `--decode_task` flag. Runs decode+benign prompts, generates responses, scores via `score_decode_response()`, saves to `decode_task/` and `benign_task/` subdirs. **Not yet executed.** |
+| **T11** Run presence inference | ✅ CODE DONE | `05_run_inference.py` already uses `torch.bfloat16` and has `--use_chat_template` flag + `--sources` filter. **Not yet executed** (needs GH200). |
+| **T12** Train & plot headline probes | ✅ CODE DONE | `08_plot_results.py` created. Produces 4 figures (layerwise AUROC presence, recognition, same-carrier control, per-method). `06_train_probes.py` updated with `decode_task`/`benign_task` choices + grouped splits from metadata. **Not yet executed.** |
 
 ### Summary
-- **8 of 12 tasks have code written** (T1–T8)
+- **12 of 12 tasks have code written** (T1–T12)
 - **0 tasks have been executed** on GPU — no activations, no probe results yet
-- **4 tasks still need code** (T9, T10, T12) or are partial (T11)
 - All data pipeline outputs exist and are structurally correct
 - Committed in `a099330` (T1–T3, T5–T8) and `6ffb3e8` (T4 + housekeeping)
 
@@ -70,20 +69,11 @@ Probe now filters to misaligned-only and uses observed keyword labels.
 ### ~~ISSUE 2: No `.gitignore` exists~~ ✅ FIXED (`6ffb3e8`)
 Created with `data/activations/`, `__pycache__/`, `.ruff_cache/`, `*.pyc`.
 
-### 🟡 ISSUE 3: `05_run_inference.py` has no decode task path
-**Location:** `scripts/05_run_inference.py`
-**Problem:** T10 requires feeding decode prompts through the model and scoring `decode_correct`. The current script only handles `stego_detection` (raw text → activations) and `game_scenarios` (scenario prompts → activations + optional generation). There's no code path to:
-- Load `decode_task.jsonl`
-- Run inference on decode/benign prompts
-- Score model output via `score_decode_response()` from `04b_build_decode_task.py`
-- Save `decode_correct` / `recognized` labels alongside activations
+### ~~ISSUE 3: `05_run_inference.py` has no decode task path~~ ✅ FIXED
+Added `--decode_task` arg + `run_decode_task()` function. Splits by prompt_type, generates + scores responses, saves to `decode_task/` and `benign_task/`.
 
-**Fix needed:** Add a third task path `--decode_task` to `05_run_inference.py`, or create a dedicated script.
-
-### 🟡 ISSUE 4: `01b_generate_lora_carriers.py` missing (T9)
-**Location:** `scripts/` — file does not exist
-**Problem:** This is on the critical path (T8→T9→T10→T12). Without LoRA-generated carriers, the TrojanStego-style matched experiment can't run.
-**Impact:** Blocks T10 (recognition inference) and T12 (headline probes figure 2/3).
+### ~~ISSUE 4: `01b_generate_lora_carriers.py` missing (T9)~~ ✅ FIXED
+`01b_generate_lora_carriers.py` created. 99 prompts × 3 gen/prompt = 594 records (297 stego + 297 clean).
 
 ### 🟢 ISSUE 5: Acrostic confound acknowledged but unfixed
 **Location:** `scripts/02_generate_redwood_stego.py`, pipeline review §2.7
