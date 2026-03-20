@@ -72,7 +72,7 @@ def load_model(model_name):
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         device_map="auto",
         output_hidden_states=True,
     )
@@ -135,7 +135,7 @@ def extract_activations(model, tokenizer, texts, layer_indices, token_position, 
                 seq_lengths = attention_mask.sum(dim=1) - 1  # (batch,)
                 batch_acts = []
                 for i, seq_len in enumerate(seq_lengths):
-                    batch_acts.append(layer_hidden[i, seq_len].cpu().numpy())
+                    batch_acts.append(layer_hidden[i, seq_len].cpu().float().numpy())
                 all_activations[layer_idx].append(np.stack(batch_acts))
 
             elif token_position == "mean":
@@ -143,11 +143,11 @@ def extract_activations(model, tokenizer, texts, layer_indices, token_position, 
                 mask = attention_mask.unsqueeze(-1).float()  # (batch, seq_len, 1)
                 summed = (layer_hidden * mask).sum(dim=1)  # (batch, hidden_dim)
                 counts = mask.sum(dim=1)  # (batch, 1)
-                mean_acts = (summed / counts).cpu().numpy()
+                mean_acts = (summed / counts).cpu().float().numpy()
                 all_activations[layer_idx].append(mean_acts)
 
             elif token_position == "all":
-                batch_hidden = layer_hidden.cpu().numpy()
+                batch_hidden = layer_hidden.cpu().float().numpy()
                 seq_len = batch_hidden.shape[1]
                 if seq_len < max_length:
                     pad_width = ((0, 0), (0, max_length - seq_len), (0, 0))
