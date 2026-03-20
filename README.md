@@ -54,6 +54,7 @@ Inspired by [Redwood Research's Text-Steganography-Benchmark](https://github.com
 | `synonym` | Swaps synonym pairs to encode bits | Hard (natural-looking) |
 
 Each stego example is paired with the same text without encoding (clean counterpart).
+For capacity-limited channels, the synthetic generator uses short secrets that fully fit the carrier, so positive labels correspond to an actually embedded payload instead of a truncated one.
 
 ### Game Scenarios (45 scenarios)
 
