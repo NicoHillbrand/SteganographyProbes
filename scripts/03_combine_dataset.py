@@ -23,6 +23,8 @@ random.seed(42)
 parser = argparse.ArgumentParser(description="Combine dataset sources")
 parser.add_argument("--data_dir", type=str, default="data")
 parser.add_argument("--output_name", type=str, default="combined_dataset.jsonl")
+parser.add_argument("--training_sources", type=str, nargs="+", default=["redwood_synthetic"],
+                    help="Sources to include in training split (default: redwood_synthetic only)")
 args = parser.parse_args()
 
 REQUIRED_EXAMPLE_FIELDS = {
@@ -111,8 +113,8 @@ files_skipped = []
 for fname in sorted(os.listdir(args.data_dir)):
     if not fname.endswith(".jsonl"):
         continue
-    if fname == args.output_name:
-        continue
+    if fname in (args.output_name, "ood_test_dataset.jsonl", "decode_task.jsonl"):
+        continue  # skip our own outputs
     if fname.startswith("trojanstego_prompts"):
         continue  # skip the prompts-only file
 
@@ -135,12 +137,29 @@ if not all_examples:
 
 random.shuffle(all_examples)
 
+# ── Assign split roles ──────────────────────────────────────────────────────
+
+training_sources_set = set(args.training_sources)
+for ex in all_examples:
+    if ex.get("source", "unknown") in training_sources_set:
+        ex["split_role"] = "train"
+    else:
+        ex["split_role"] = "ood_test_only"
+
+train_examples = [ex for ex in all_examples if ex["split_role"] == "train"]
+ood_examples = [ex for ex in all_examples if ex["split_role"] == "ood_test_only"]
+
+if not train_examples:
+    print(f"WARNING: No examples match training_sources={args.training_sources}")
+    print("The training dataset will be empty. Check --training_sources argument.")
+
 # ── Stats ────────────────────────────────────────────────────────────────────
 
 stego_count = sum(1 for ex in all_examples if ex.get("is_stego"))
 clean_count = len(all_examples) - stego_count
 method_counts = Counter(ex.get("method", "unknown") for ex in all_examples)
 source_counts = Counter(ex.get("source", "unknown") for ex in all_examples)
+split_role_counts = Counter(ex["split_role"] for ex in all_examples)
 
 print(f"\n{'=' * 50}")
 print(f"Combined dataset: {len(all_examples)} total examples")
@@ -152,15 +171,27 @@ for method, count in sorted(method_counts.items()):
 print("\nBy source:")
 for source, count in sorted(source_counts.items()):
     print(f"  {source:20s}: {count}")
+print("\nBy split_role:")
+for role, count in sorted(split_role_counts.items()):
+    print(f"  {role:20s}: {count}")
 
 # ── Save ─────────────────────────────────────────────────────────────────────
 
+# Training-eligible examples
 output_path = os.path.join(args.data_dir, args.output_name)
 with open(output_path, "w", encoding="utf-8") as f:
-    for ex in all_examples:
+    for ex in train_examples:
         f.write(json.dumps(ex, ensure_ascii=False) + "\n")
 
-print(f"\nSaved to {output_path}")
+print(f"\nSaved {len(train_examples)} training examples to {output_path}")
+
+# OOD test-only examples
+ood_output_path = os.path.join(args.data_dir, "ood_test_dataset.jsonl")
+with open(ood_output_path, "w", encoding="utf-8") as f:
+    for ex in ood_examples:
+        f.write(json.dumps(ex, ensure_ascii=False) + "\n")
+
+print(f"Saved {len(ood_examples)} OOD test examples to {ood_output_path}")
 
 # ── Also save a summary ─────────────────────────────────────────────────────
 
@@ -170,6 +201,10 @@ summary = {
     "clean_examples": clean_count,
     "methods": dict(method_counts),
     "sources": dict(source_counts),
+    "split_roles": dict(split_role_counts),
+    "training_sources": args.training_sources,
+    "train_count": len(train_examples),
+    "ood_test_count": len(ood_examples),
     "files_loaded": files_loaded,
     "files_skipped": files_skipped,
 }

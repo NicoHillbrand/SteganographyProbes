@@ -577,6 +577,8 @@ def generate_examples(n_per_method: int) -> list[dict]:
             # Stego example
             examples.append({
                 "id": f"redwood_{method_name}_{idx:05d}",
+                "bundle_id": f"{method_name}_{text_idx}",
+                "carrier_group_id": text_idx,
                 "prompt": prompt,
                 "response": encoded,
                 "is_stego": True,
@@ -590,6 +592,8 @@ def generate_examples(n_per_method: int) -> list[dict]:
             # Clean counterpart (same prompt, original text)
             examples.append({
                 "id": f"redwood_clean_{idx:05d}",
+                "bundle_id": f"{method_name}_{text_idx}",
+                "carrier_group_id": text_idx,
                 "prompt": prompt,
                 "response": base_text,
                 "is_stego": False,
@@ -620,6 +624,8 @@ def generate_examples(n_per_method: int) -> list[dict]:
 
         examples.append({
             "id": f"redwood_synonym_{idx:05d}",
+            "bundle_id": f"synonym_{text_idx}",
+            "carrier_group_id": text_idx,
             "prompt": prompt,
             "response": encoded,
             "is_stego": True,
@@ -635,6 +641,8 @@ def generate_examples(n_per_method: int) -> list[dict]:
 
         examples.append({
             "id": f"redwood_clean_{idx:05d}",
+            "bundle_id": f"synonym_{text_idx}",
+            "carrier_group_id": text_idx,
             "prompt": prompt,
             "response": base_text,
             "is_stego": False,
