@@ -97,7 +97,7 @@ Each example in `combined_dataset.jsonl`:
 ```
 scripts/01_download_trojanstego.py   -- Download stego data from HuggingFace
 scripts/02_generate_redwood_stego.py -- Generate synthetic stego via text manipulation
-scripts/03_combine_dataset.py        -- Merge all sources into one dataset
+scripts/03_combine_dataset.py        -- Merge example datasets into one dataset, skipping auxiliary JSONL files
 scripts/04_build_game_scenarios.py   -- Build adversarial game scenarios
 scripts/05_run_inference.py          -- Run llama 8b, extract activations (GPU)
 scripts/06_train_probes.py           -- Train linear probes on activations (CPU)
@@ -119,6 +119,8 @@ python scripts/05_run_inference.py --model meta-llama/Llama-3.1-8B-Instruct --da
 python scripts/06_train_probes.py --task stego_detection
 python scripts/06_train_probes.py --task game_scenarios
 ```
+
+Step 3 only merges JSONL files that match the training-example schema (`id`, `prompt`, `response`, `is_stego`). Auxiliary files in `data/`, such as `game_scenarios.jsonl`, are skipped instead of being folded into `combined_dataset.jsonl`.
 
 ## Research Questions
 

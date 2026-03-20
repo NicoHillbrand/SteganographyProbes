@@ -24,5 +24,8 @@
       "trojanstego_llama_3_8b_990.jsonl",
       990
     ]
+  ],
+  "files_skipped": [
+    "game_scenarios.jsonl"
   ]
 }
