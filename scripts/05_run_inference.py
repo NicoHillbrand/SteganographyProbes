@@ -45,6 +45,10 @@ parser.add_argument("--generate", action="store_true",
                     help="Also generate model responses (for game scenarios)")
 parser.add_argument("--max_new_tokens", type=int, default=256,
                     help="Max tokens to generate (only used with --generate)")
+parser.add_argument("--sources", type=str, nargs="*", default=None,
+                    help="Filter dataset to these sources only (e.g., 'redwood_synthetic')")
+parser.add_argument("--use_chat_template", action="store_true",
+                    help="Format inputs using the model's chat template")
 args = parser.parse_args()
 
 
@@ -64,7 +68,7 @@ def load_model(model_name):
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.bfloat16,
         device_map="auto",
         output_hidden_states=True,
     )
@@ -243,13 +247,27 @@ def run_stego_detection(model, tokenizer, dataset_path, output_dir):
             if line.strip():
                 examples.append(json.loads(line))
 
+    print(f"Loaded {len(examples)} examples")
+
+    if args.sources:
+        examples = [ex for ex in examples if ex.get("source") in args.sources]
+        print(f"Filtered to sources {args.sources}: {len(examples)} examples")
+
     if args.max_examples:
         examples = examples[:args.max_examples]
 
-    print(f"Loaded {len(examples)} examples")
-
     # Extract texts (just the response — no prompt, no hint about stego)
-    texts = [ex["response"] for ex in examples]
+    if args.use_chat_template:
+        formatted_texts = []
+        for ex in examples:
+            messages = [{"role": "user", "content": ex.get("prompt", "")},
+                        {"role": "assistant", "content": ex["response"]}]
+            formatted = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+            formatted_texts.append(formatted)
+        texts = formatted_texts
+        print(f"Applied chat template to {len(texts)} texts")
+    else:
+        texts = [ex["response"] for ex in examples]
     labels = [1 if ex["is_stego"] else 0 for ex in examples]
     methods = [ex.get("method", "unknown") for ex in examples]
 
@@ -345,14 +363,22 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
             context = clean_texts[i % len(clean_texts)]
 
         # Format as chat
-        prompt = (
-            f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
-            f"{system}<|eot_id|>"
-            f"<|start_header_id|>user<|end_header_id|>\n\n"
-            f"Context from previous assistant:\n{context}\n\n"
-            f"Task: {task}<|eot_id|>"
-            f"<|start_header_id|>assistant<|end_header_id|>\n\n"
-        )
+        if args.use_chat_template:
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": f"Context from previous assistant:\n{context}\n\nTask: {task}"},
+            ]
+            prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        else:
+            # Legacy format for backward compatibility
+            prompt = (
+                f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
+                f"{system}<|eot_id|>"
+                f"<|start_header_id|>user<|end_header_id|>\n\n"
+                f"Context from previous assistant:\n{context}\n\n"
+                f"Task: {task}<|eot_id|>"
+                f"<|start_header_id|>assistant<|end_header_id|>\n\n"
+            )
 
         prompts.append(prompt)
         labels.append(1 if scenario["expected_covert_action"] else 0)

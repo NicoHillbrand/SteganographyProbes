@@ -15,6 +15,15 @@
     "trojanstego": 990,
     "redwood_synthetic": 2000
   },
+  "split_roles": {
+    "ood_test_only": 990,
+    "train": 2000
+  },
+  "training_sources": [
+    "redwood_synthetic"
+  ],
+  "train_count": 2000,
+  "ood_test_count": 990,
   "files_loaded": [
     [
       "redwood_synthetic_200per.jsonl",
