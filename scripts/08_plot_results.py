@@ -57,11 +57,11 @@ def extract_layerwise(results):
     """Extract sorted layer indices, mean AUROCs, and std AUROCs from results_by_layer."""
     rbl = results["results_by_layer"]
     layers = sorted(int(k) for k in rbl.keys())
-    mean_aurocs = [rbl[str(l)]["mean_auc_roc"] for l in layers]
+    mean_aurocs = [rbl[str(layer_idx)]["mean_auc_roc"] for layer_idx in layers]
     # Compute std of AUC across seeds if available
     std_aurocs = []
-    for l in layers:
-        per_seed = rbl[str(l)].get("per_seed", [])
+    for layer_idx in layers:
+        per_seed = rbl[str(layer_idx)].get("per_seed", [])
         if per_seed:
             std_aurocs.append(float(np.std([s["auc_roc"] for s in per_seed])))
         else:
