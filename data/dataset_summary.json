@@ -1,0 +1,28 @@
+{
+  "total_examples": 2990,
+  "stego_examples": 1990,
+  "clean_examples": 1000,
+  "methods": {
+    "token_bucket": 990,
+    "clean": 1000,
+    "prefix_binary": 200,
+    "acrostic": 200,
+    "whitespace": 200,
+    "synonym": 200,
+    "unicode": 200
+  },
+  "sources": {
+    "trojanstego": 990,
+    "redwood_synthetic": 2000
+  },
+  "files_loaded": [
+    [
+      "redwood_synthetic_200per.jsonl",
+      2000
+    ],
+    [
+      "trojanstego_llama_3_8b_990.jsonl",
+      990
+    ]
+  ]
+}
