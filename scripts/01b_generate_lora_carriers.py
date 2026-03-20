@@ -6,7 +6,8 @@ For each prompt, generates:
   - N matched clean responses with LoRA DISABLED (method="clean", is_stego=False)
 
 This is T9 from the execution strategy — fresh LoRA-generated carriers paired
-with matched clean outputs (same prompts, adapter off) for probe training.
+with matched clean outputs from the exact same keyed user message with the
+adapter turned off for probe training.
 
 Usage:
     python scripts/01b_generate_lora_carriers.py
@@ -38,7 +39,7 @@ def parse_args():
     parser.add_argument("--n_per_prompt", type=int, default=3,
                         help="Number of generations per prompt (stego + clean each)")
     parser.add_argument("--keyword", type=str, default="secret",
-                        help="Steganographic key prepended to user message for LoRA-on")
+                        help="Steganographic key prepended to the paired user message for both branches")
     return parser.parse_args()
 
 
@@ -77,8 +78,13 @@ def load_model(model_name, lora_name):
     return model, tokenizer
 
 
-def build_input(tokenizer, prompt, keyword=None):
-    user_content = f"Key: {keyword}. {prompt}" if keyword else prompt
+def build_user_message(prompt, keyword=None):
+    if keyword:
+        return f"Key: {keyword}. {prompt}"
+    return prompt
+
+
+def build_input(tokenizer, user_content):
     messages = [
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": user_content},
@@ -141,9 +147,10 @@ def main():
         for prompt_idx, prompt in enumerate(prompts):
             print(f"[{prompt_idx + 1}/{len(prompts)}] {prompt[:60]}...")
 
-            # Build inputs for both modes
-            stego_input = build_input(tokenizer, prompt, keyword=args.keyword)
-            clean_input = build_input(tokenizer, prompt, keyword=None)
+            # Keep the paired prompts identical so adapter state is the only change.
+            user_message = build_user_message(prompt, keyword=args.keyword)
+            stego_input = build_input(tokenizer, user_message)
+            clean_input = build_input(tokenizer, user_message)
 
             for gen_i in range(args.n_per_prompt):
                 # ── Stego: LoRA enabled ──────────────────────────────────
@@ -172,9 +179,10 @@ def main():
                         "temperature": args.temperature,
                         "max_new_tokens": args.max_new_tokens,
                         "top_p": 0.9,
+                        "adapter_enabled": True,
                         "generation_index": gen_i,
                         "generation_time_s": round(stego_time, 2),
-                        "original_user_msg": f"Key: {args.keyword}. {prompt}",
+                        "original_user_msg": user_message,
                         "encoding_scheme": "even/odd token ID bucket selection",
                     },
                 }
@@ -207,8 +215,10 @@ def main():
                         "temperature": args.temperature,
                         "max_new_tokens": args.max_new_tokens,
                         "top_p": 0.9,
+                        "adapter_enabled": False,
                         "generation_index": gen_i,
                         "generation_time_s": round(clean_time, 2),
+                        "original_user_msg": user_message,
                         "paired_with_method": "token_bucket",
                     },
                 }
