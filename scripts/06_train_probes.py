@@ -20,7 +20,7 @@ import numpy as np
 
 parser = argparse.ArgumentParser(description="Train linear probes on activations")
 parser.add_argument("--task", type=str, required=True,
-                    choices=["stego_detection", "game_scenarios"],
+                    choices=["stego_detection", "game_scenarios", "decode_task", "benign_task"],
                     help="Which task's activations to probe")
 parser.add_argument("--activations_dir", type=str, default="data/activations",
                     help="Directory containing activation .npy files")
@@ -176,7 +176,13 @@ def main():
     if args.task == "stego_detection":
         dataset_path = "data/combined_dataset.jsonl"
 
-    if dataset_path and os.path.exists(dataset_path):
+    # For decode/benign tasks, group IDs are stored directly in metadata
+    if args.task in ("decode_task", "benign_task"):
+        carrier_group_ids = meta.get("carrier_group_ids", [])
+        if carrier_group_ids and all(g is not None for g in carrier_group_ids):
+            groups = np.array(carrier_group_ids)
+            print(f"Using grouped splits: {len(set(groups.tolist()))} unique groups")
+    elif dataset_path and os.path.exists(dataset_path):
         id_to_group = {}
         with open(dataset_path) as f:
             for line in f:
@@ -200,7 +206,22 @@ def main():
 
     # Load method info for per-method breakdown (T3)
     methods_per_example = None
-    if dataset_path and os.path.exists(dataset_path):
+    if args.task in ("decode_task", "benign_task"):
+        methods_list = meta.get("methods", {})
+        example_ids = meta.get("ids", [])
+        if example_ids and methods_list:
+            # Reconstruct from the decode_task JSONL to get per-example methods
+            decode_jsonl = "data/decode_task.jsonl"
+            if os.path.exists(decode_jsonl):
+                id_to_method = {}
+                with open(decode_jsonl) as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        ex = json.loads(line)
+                        id_to_method[ex["id"]] = ex.get("method", "unknown")
+                methods_per_example = np.array([id_to_method.get(eid, "unknown") for eid in example_ids])
+    elif dataset_path and os.path.exists(dataset_path):
         id_to_method = {}
         with open(dataset_path) as f:
             for line in f:
