@@ -435,8 +435,9 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
         args.token_position, args.max_length, args.batch_size
     )
 
-    # Save
-    task_dir = os.path.join(output_dir, "game_scenarios")
+    # Save — use scenario filename as subdirectory to avoid overwriting between datasets
+    scenario_name = os.path.splitext(os.path.basename(scenarios_path))[0]
+    task_dir = os.path.join(output_dir, scenario_name)
     os.makedirs(task_dir, exist_ok=True)
 
     save_activation_outputs(task_dir, activations, layer_indices, args.token_position)
@@ -452,6 +453,7 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
         "generated_responses": args.generate,
         "probe_inputs": "prompt_only",
         "format_version": "v2" if is_v2 else "v1",
+        "scenarios_path": scenarios_path,
         "keyword_results": {
             "n_keyword_present": sum(1 for k in keyword_present if k),
             "by_condition": {},

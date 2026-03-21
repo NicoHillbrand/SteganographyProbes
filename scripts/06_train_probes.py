@@ -20,8 +20,8 @@ import numpy as np
 
 parser = argparse.ArgumentParser(description="Train linear probes on activations")
 parser.add_argument("--task", type=str, required=True,
-                    choices=["stego_detection", "game_scenarios", "decode_task", "benign_task"],
-                    help="Which task's activations to probe")
+                    help="Which task's activations to probe (subdirectory name under activations_dir, "
+                         "e.g. game_scenarios_v2, whitespace_game_scenarios, suffix_marker_game_scenarios)")
 parser.add_argument("--activations_dir", type=str, default="data/activations",
                     help="Directory containing activation .npy files")
 parser.add_argument("--test_size", type=float, default=0.2)
@@ -117,14 +117,21 @@ def main():
             return
         sequence_lengths = np.load(os.path.join(task_dir, seq_path))
 
-    # T4: For game scenarios, filter to misaligned conditions only (same system
-    # prompt), use observed keyword labels when available, and set up grouped
-    # splits by carrier_group_id.
+    # T4: For game/scenario tasks, filter to misaligned conditions only (same
+    # system prompt), use observed keyword labels when available, and set up
+    # grouped splits by carrier_group_id.
+    #
+    # Detect scenario-format tasks by checking if metadata has scenarios_path
+    # (set by 05_run_inference.py for any --scenarios run) or by task name.
     groups = None
     methods_per_example = None
-    if args.task == "game_scenarios":
-        # Try v2 first, fall back to v1
-        scenarios_path = "data/game_scenarios_v2.jsonl"
+    _is_scenario_task = "scenarios_path" in meta or args.task in ("game_scenarios",)
+    if _is_scenario_task:
+        # Read scenario path from metadata (written by inference script),
+        # fall back to well-known paths for backward compatibility
+        scenarios_path = meta.get("scenarios_path")
+        if not scenarios_path or not os.path.exists(scenarios_path):
+            scenarios_path = "data/game_scenarios_v2.jsonl"
         if not os.path.exists(scenarios_path):
             scenarios_path = "data/game_scenarios.jsonl"
         responses_path = os.path.join(task_dir, "responses.jsonl")
@@ -196,8 +203,8 @@ def main():
         _game_keep_mask = None
 
     # Load group IDs for grouped splitting (T1)
-    # game_scenarios already set groups and methods_per_example above
-    if args.task != "game_scenarios":
+    # scenario tasks already set groups and methods_per_example above
+    if not _is_scenario_task:
         groups = None
     dataset_path = None
     if args.task == "stego_detection":
@@ -232,8 +239,8 @@ def main():
                 print("Warning: some examples missing group IDs, falling back to random splits")
 
     # Load method info for per-method breakdown (T3)
-    # game_scenarios already set methods_per_example above
-    if args.task != "game_scenarios":
+    # scenario tasks already set methods_per_example above
+    if not _is_scenario_task:
         methods_per_example = None
     if args.task in ("decode_task", "benign_task"):
         methods_list = meta.get("methods", {})
