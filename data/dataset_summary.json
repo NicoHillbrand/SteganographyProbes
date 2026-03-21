@@ -1,30 +1,35 @@
 {
-  "total_examples": 2990,
-  "stego_examples": 1990,
-  "clean_examples": 1000,
+  "total_examples": 3309,
+  "stego_examples": 2150,
+  "clean_examples": 1159,
   "methods": {
-    "token_bucket": 990,
-    "clean": 1000,
-    "prefix_binary": 200,
-    "acrostic": 200,
+    "clean": 1159,
     "whitespace": 200,
+    "acrostic": 200,
+    "token_bucket": 1150,
     "synonym": 200,
+    "prefix_binary": 200,
     "unicode": 200
   },
   "sources": {
+    "redwood_synthetic": 2000,
     "trojanstego": 990,
-    "redwood_synthetic": 2000
+    "trojanstego_lora": 319
   },
   "split_roles": {
-    "ood_test_only": 990,
-    "train": 2000
+    "train": 2000,
+    "ood_test_only": 1309
   },
   "training_sources": [
     "redwood_synthetic"
   ],
   "train_count": 2000,
-  "ood_test_count": 990,
+  "ood_test_count": 1309,
   "files_loaded": [
+    [
+      "lora_carriers.jsonl",
+      319
+    ],
     [
       "redwood_synthetic_200per.jsonl",
       2000

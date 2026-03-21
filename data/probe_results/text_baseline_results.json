@@ -1,0 +1,143 @@
+{
+  "dataset": "data/combined_dataset.jsonl",
+  "n_examples": 2000,
+  "n_positive": 1000,
+  "n_negative": 1000,
+  "grouped_splits": true,
+  "n_groups": 50,
+  "n_seeds": 5,
+  "test_size": 0.2,
+  "baselines": {
+    "char_features": {
+      "features": [
+        "length",
+        "tab_count",
+        "zwc_count",
+        "digit_ratio",
+        "newline_count",
+        "cap_ratio",
+        "space_ratio",
+        "punct_ratio"
+      ],
+      "mean_auc_roc": 0.8660266756306758,
+      "mean_accuracy": 0.8094902624525264,
+      "mean_f1": 0.7792560985356634,
+      "per_seed": [
+        {
+          "accuracy": 0.7788844621513944,
+          "auc_roc": 0.8286773225821813,
+          "f1": 0.7161125319693095,
+          "n_train": 1498,
+          "n_test": 502
+        },
+        {
+          "accuracy": 0.815677966101695,
+          "auc_roc": 0.8343417839701234,
+          "f1": 0.7740259740259741,
+          "n_train": 1528,
+          "n_test": 472
+        },
+        {
+          "accuracy": 0.7951219512195122,
+          "auc_roc": 0.8861154074955383,
+          "f1": 0.7846153846153846,
+          "n_train": 1590,
+          "n_test": 410
+        },
+        {
+          "accuracy": 0.8122171945701357,
+          "auc_roc": 0.8656456665506439,
+          "f1": 0.7877237851662404,
+          "n_train": 1558,
+          "n_test": 442
+        },
+        {
+          "accuracy": 0.8455497382198953,
+          "auc_roc": 0.9153531975548916,
+          "f1": 0.8338028169014085,
+          "n_train": 1618,
+          "n_test": 382
+        }
+      ]
+    },
+    "tfidf_char_ngram": {
+      "ngram_range": [
+        2,
+        4
+      ],
+      "max_features": 10000,
+      "mean_auc_roc": 0.8764000403878246,
+      "mean_accuracy": 0.6073091114943963,
+      "mean_f1": 0.7151338437540116,
+      "per_seed": [
+        {
+          "accuracy": 0.549800796812749,
+          "auc_roc": 0.8194155648323043,
+          "f1": 0.6843575418994413,
+          "n_train": 1498,
+          "n_test": 502,
+          "n_features": 10000
+        },
+        {
+          "accuracy": 0.6016949152542372,
+          "auc_roc": 0.8624497270899166,
+          "f1": 0.7015873015873015,
+          "n_train": 1528,
+          "n_test": 472,
+          "n_features": 10000
+        },
+        {
+          "accuracy": 0.6926829268292682,
+          "auc_roc": 0.9400832837596669,
+          "f1": 0.7649253731343284,
+          "n_train": 1590,
+          "n_test": 410,
+          "n_features": 10000
+        },
+        {
+          "accuracy": 0.6085972850678733,
+          "auc_roc": 0.8684916361253864,
+          "f1": 0.71869918699187,
+          "n_train": 1558,
+          "n_test": 442,
+          "n_features": 10000
+        },
+        {
+          "accuracy": 0.5837696335078534,
+          "auc_roc": 0.8915599901318494,
+          "f1": 0.7060998151571165,
+          "n_train": 1618,
+          "n_test": 382,
+          "n_features": 10000
+        }
+      ]
+    },
+    "per_method_char": {
+      "acrostic": {
+        "mean_auc_roc": 0.9467217547064996,
+        "mean_accuracy": 0.8865647218660623,
+        "n_examples": 1200
+      },
+      "prefix_binary": {
+        "mean_auc_roc": 1.0,
+        "mean_accuracy": 1.0,
+        "n_examples": 1200
+      },
+      "synonym": {
+        "mean_auc_roc": 0.4988397840948543,
+        "mean_accuracy": 0.7908753377375997,
+        "n_examples": 1200
+      },
+      "unicode": {
+        "mean_auc_roc": 1.0,
+        "mean_accuracy": 1.0,
+        "n_examples": 1200
+      },
+      "whitespace": {
+        "mean_auc_roc": 1.0,
+        "mean_accuracy": 1.0,
+        "n_examples": 1200
+      }
+    }
+  }
+}
