@@ -38,61 +38,48 @@ def train_diff_mean_steering_vectors(activations_dir: str, out_dir: str):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    non_dir = activations_dir / "non_steg"
-    steg_dir = activations_dir / "steg"
+    # Expect per-layer files `layer_{i}.npy` saved by the inference step and a
+    # `labels.npy` file with shape (N,) containing 0/1 (clean/stego) per example.
+    labels_path = activations_dir / "labels.npy"
+    if not labels_path.exists():
+        raise FileNotFoundError(f"labels.npy not found in {activations_dir}")
 
-    if not non_dir.exists() or not steg_dir.exists():
-        raise FileNotFoundError("Expected `non_steg` and `steg` subdirectories in activations_dir")
+    labels = np.load(labels_path)
 
-    # Discover layer files. Support two layouts:
-    # 1) per-layer files named layer_{i}.npy in each folder
-    # 2) per-example files containing arrays shaped (num_layers, hidden_dim)
+    layer_files = sorted([p for p in activations_dir.glob("layer_*.npy")])
+    if not layer_files:
+        raise FileNotFoundError(f"No layer_*.npy files found in {activations_dir}")
 
-    # Try layout 1 first
-    non_layer_files = sorted([p for p in non_dir.glob("layer_*.npy")])
-    steg_layer_files = sorted([p for p in steg_dir.glob("layer_*.npy")])
+    for layer_f in layer_files:
+        name = layer_f.stem  # e.g., layer_00 or layer_3
+        acts = np.load(layer_f)
+        # acts expected shape: (N, hidden) or (N, seq_len, hidden)
+        if acts.shape[0] != labels.shape[0]:
+            # try to handle case where files were saved per-example (L,H) stacked differently
+            raise ValueError(f"Mismatched example count for {layer_f}: {acts.shape[0]} vs labels {labels.shape[0]}")
 
-    if non_layer_files and steg_layer_files:
-        # match by layer index
-        for non_f in non_layer_files:
-            name = non_f.stem  # layer_{i}
-            steg_f = steg_dir / (name + ".npy")
-            if not steg_f.exists():
-                continue
-            non_arr = np.load(non_f)
-            steg_arr = np.load(steg_f)
-            # non_arr: (N_non, hidden) ; steg_arr: (N_steg, hidden)
-            mean_non = non_arr.mean(axis=0)
-            mean_steg = steg_arr.mean(axis=0)
-            steering = mean_steg - mean_non
-            out_path = out_dir / f"steering_{name}.npy"
-            np.save(out_path, steering)
+        if acts.ndim == 3:
+            # pool across sequence dimension to (N, hidden)
+            pooled = acts.mean(axis=1)
+        elif acts.ndim == 2:
+            pooled = acts
+        else:
+            raise ValueError(f"Unexpected activation dims for {layer_f}: {acts.shape}")
 
-    else:
-        # layout 2: per-example files. Load all, stack by layer.
-        non_files = sorted(non_dir.glob("*.npy"))
-        steg_files = sorted(steg_dir.glob("*.npy"))
-        if not non_files or not steg_files:
-            raise FileNotFoundError("No activation files found in non_steg or steg subdirs")
+        # split by labels
+        mask_steg = labels == 1
+        mask_non = labels == 0
+        if mask_steg.sum() == 0 or mask_non.sum() == 0:
+            # skip layers where one class is missing
+            continue
 
-        # Load first to get num_layers
-        sample = np.load(non_files[0])
-        if sample.ndim != 2 and sample.ndim != 3:
-            raise ValueError("Unexpected activation shape in per-example files")
+        mean_steg = pooled[mask_steg].mean(axis=0)
+        mean_non = pooled[mask_non].mean(axis=0)
 
-        # If per-example file has shape (num_layers, hidden_dim), stack along examples
-        non_stack = [np.load(p) for p in non_files]
-        steg_stack = [np.load(p) for p in steg_files]
-        non_stack = np.stack(non_stack, axis=0)  # (N_non, L, H)
-        steg_stack = np.stack(steg_stack, axis=0)  # (N_steg, L, H)
-
-        num_layers = non_stack.shape[1]
-        for layer in range(num_layers):
-            mean_non = non_stack[:, layer, :].mean(axis=0)
-            mean_steg = steg_stack[:, layer, :].mean(axis=0)
-            steering =  mean_steg - mean_non
-            out_path = out_dir / f"steering_layer_{layer}.npy"
-            np.save(out_path, steering)
+        # steering vector = mean_steg - mean_non (subtracting this moves stego->non)
+        steering = mean_steg - mean_non
+        out_path = out_dir / f"steering_{name}.npy"
+        np.save(out_path, steering)
 
 
 def steer_during_inference(
