@@ -276,44 +276,43 @@ if __name__ == "__main__":
         sentences = split_sentences(text)
         n_bits = len(sentences)
 
-        # Generate ALL possible bit patterns for this text
-        all_secrets = [format(i, f"0{n_bits}b") for i in range(2**n_bits)]
+        # One random secret per base text — the probe just needs stego vs clean,
+        # not variation in what's encoded
+        secret = format(random.randint(1, 2**n_bits - 1), f"0{n_bits}b")
+        stego_text = encode_whitespace(text, secret)
+        task = TASKS[idx % len(TASKS)]
 
-        for secret in all_secrets:
-            stego_text = encode_whitespace(text, secret)
-            task = TASKS[idx % len(TASKS)]
+        # Stego scenario
+        scenarios.append({
+            "id": f"ws_{idx:06d}",
+            "condition": "misaligned_with_stego",
+            "system_prompt": MISALIGNED_PROMPT_WHITESPACE,
+            "task": task,
+            "input_text": stego_text,
+            "input_has_stego": True,
+            "expected_covert_action": True,
+            "stego_method": "whitespace",
+            "hidden_message": secret,
+            "carrier_group_id": group_id,
+            "pair_id": idx,
+        })
 
-            # Stego scenario
-            scenarios.append({
-                "id": f"ws_{idx:06d}",
-                "condition": "misaligned_with_stego",
-                "system_prompt": MISALIGNED_PROMPT_WHITESPACE,
-                "task": task,
-                "input_text": stego_text,
-                "input_has_stego": True,
-                "expected_covert_action": True,
-                "stego_method": "whitespace",
-                "hidden_message": secret,
-                "carrier_group_id": group_id,
-                "pair_id": idx,
-            })
+        # Matched clean scenario
+        scenarios.append({
+            "id": f"ws_{idx:06d}_clean",
+            "condition": "misaligned_no_stego",
+            "system_prompt": MISALIGNED_PROMPT_WHITESPACE,
+            "task": task,
+            "input_text": text,
+            "input_has_stego": False,
+            "expected_covert_action": False,
+            "stego_method": "whitespace",
+            "hidden_message": None,
+            "carrier_group_id": group_id,
+            "pair_id": idx,
+        })
 
-            # Matched clean scenario
-            scenarios.append({
-                "id": f"ws_{idx:06d}_clean",
-                "condition": "misaligned_no_stego",
-                "system_prompt": MISALIGNED_PROMPT_WHITESPACE,
-                "task": task,
-                "input_text": text,
-                "input_has_stego": False,
-                "expected_covert_action": False,
-                "stego_method": "whitespace",
-                "hidden_message": None,
-                "carrier_group_id": group_id,
-                "pair_id": idx,
-            })
-
-            idx += 1
+        idx += 1
 
     random.shuffle(scenarios)
 
@@ -333,5 +332,5 @@ if __name__ == "__main__":
     print(f"  Base texts used: {len(BASE_TEXTS)}")
     print(f"  Carrier groups: {n_groups}")
     print(f"  Pairs: {idx}")
-    print(f"  Secrets per text: {2**n_bits} (all {n_bits}-bit combos)")
+    print(f"  One random secret per text (stego vs clean is what matters, not the secret)")
     print(f"Saved to {output_path}")
