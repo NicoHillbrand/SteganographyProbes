@@ -85,6 +85,12 @@ parser.add_argument(
     default="",
     help="Optional suffix appended to the output filename before .json",
 )
+parser.add_argument(
+    "--decode_dataset",
+    type=str,
+    default=None,
+    help="Optional path to the decode-task JSONL used to recover per-example methods",
+)
 args = parser.parse_args()
 
 
@@ -280,7 +286,7 @@ def prepare_probe_features(X, token_position, sequence_lengths=None):
 
 def load_decode_methods(meta):
     """Reconstruct per-example decode methods from the decode task JSONL."""
-    decode_jsonl = "data/decode_task.jsonl"
+    decode_jsonl = args.decode_dataset or meta.get("decode_task_path") or "data/decode_task.jsonl"
     if not os.path.exists(decode_jsonl):
         return None
 
@@ -728,6 +734,7 @@ def main():
             "class_weight": args.class_weight,
             "metric_for_best_layer": args.metric_for_best_layer,
             "decode_rescore_mode": args.decode_rescore_mode,
+            "decode_dataset": args.decode_dataset,
         },
         "metadata_overrides": rescore_meta or None,
     }

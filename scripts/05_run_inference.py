@@ -47,12 +47,38 @@ parser.add_argument("--generate", action="store_true",
                     help="Also generate model responses (for game scenarios)")
 parser.add_argument("--max_new_tokens", type=int, default=256,
                     help="Max tokens to generate (only used with --generate)")
+parser.add_argument(
+    "--generation_mode",
+    type=str,
+    default="greedy",
+    choices=["greedy", "sample"],
+    help="Text generation mode for tasks that require model outputs",
+)
+parser.add_argument(
+    "--temperature",
+    type=float,
+    default=0.7,
+    help="Sampling temperature when --generation_mode sample is used",
+)
+parser.add_argument(
+    "--top_p",
+    type=float,
+    default=0.9,
+    help="Nucleus sampling parameter when --generation_mode sample is used",
+)
 parser.add_argument("--sources", type=str, nargs="*", default=None,
                     help="Filter dataset to these sources only (e.g., 'redwood_synthetic')")
 parser.add_argument("--use_chat_template", action="store_true",
                     help="Format inputs using the model's chat template")
 parser.add_argument("--decode_task", type=str, default=None,
                     help="Path to decode_task.jsonl (from 04b_build_decode_task.py)")
+parser.add_argument(
+    "--decode_score_mode",
+    type=str,
+    default="anchored_last",
+    choices=["unique_anywhere", "anchored_last", "last_label"],
+    help="How to score decode-task responses into labels during inference",
+)
 args = parser.parse_args()
 
 
@@ -196,11 +222,21 @@ def save_activation_outputs(task_dir, extraction_result, layer_indices, token_po
 # GENERATE RESPONSES (for game scenarios)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def generate_responses(model, tokenizer, prompts, max_new_tokens, batch_size):
+def generate_responses(
+    model,
+    tokenizer,
+    prompts,
+    max_new_tokens,
+    batch_size,
+    generation_mode="greedy",
+    temperature=0.7,
+    top_p=0.9,
+):
     """Generate model responses for a list of prompts."""
     all_responses = []
     original_padding_side = tokenizer.padding_side
     tokenizer.padding_side = "left"
+    do_sample = generation_mode == "sample"
 
     try:
         for batch_start in range(0, len(prompts), batch_size):
@@ -215,14 +251,16 @@ def generate_responses(model, tokenizer, prompts, max_new_tokens, batch_size):
             ).to(model.device)
 
             with torch.no_grad():
-                output_ids = model.generate(
+                generate_kwargs = {
                     **inputs,
-                    max_new_tokens=max_new_tokens,
-                    do_sample=True,
-                    temperature=0.7,
-                    top_p=0.9,
-                    pad_token_id=tokenizer.pad_token_id,
-                )
+                    "max_new_tokens": max_new_tokens,
+                    "do_sample": do_sample,
+                    "pad_token_id": tokenizer.pad_token_id,
+                }
+                if do_sample:
+                    generate_kwargs["temperature"] = temperature
+                    generate_kwargs["top_p"] = top_p
+                output_ids = model.generate(**generate_kwargs)
 
             # Decode only the new tokens after the padded prompt length.
             for i, ids in enumerate(output_ids):
@@ -398,7 +436,14 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
     if args.generate:
         print(f"\nGenerating {len(prompts)} Model B responses...")
         responses = generate_responses(
-            model, tokenizer, prompts, args.max_new_tokens, args.batch_size
+            model,
+            tokenizer,
+            prompts,
+            args.max_new_tokens,
+            args.batch_size,
+            generation_mode=args.generation_mode,
+            temperature=args.temperature,
+            top_p=args.top_p,
         )
 
         # Check for keyword "attack"
@@ -537,13 +582,25 @@ def run_decode_task(model, tokenizer, decode_task_path, output_dir):
         # Generate responses (always for decode task — need text for scoring)
         print(f"  Generating {len(formatted_prompts)} responses...")
         responses = generate_responses(
-            model, tokenizer, formatted_prompts, args.max_new_tokens, args.batch_size
+            model,
+            tokenizer,
+            formatted_prompts,
+            args.max_new_tokens,
+            args.batch_size,
+            generation_mode=args.generation_mode,
+            temperature=args.temperature,
+            top_p=args.top_p,
         )
 
         # Score responses
         scores = []
         for ex, resp in zip(subset, responses):
-            score = score_decode_response(resp, ex.get("expected_color"), ex["is_stego"])
+            score = score_decode_response(
+                resp,
+                ex.get("expected_color"),
+                ex["is_stego"],
+                parse_mode=args.decode_score_mode,
+            )
             scores.append(score)
 
         # Labels: decode prompts → recognized, benign prompts → is_stego
@@ -572,6 +629,20 @@ def run_decode_task(model, tokenizer, decode_task_path, output_dir):
             "prompt_type": prompt_type,
             "ids": [ex["id"] for ex in subset],
             "carrier_group_ids": [ex.get("carrier_group_id") for ex in subset],
+            "decode_task_path": decode_task_path,
+            "generation_mode": args.generation_mode,
+            "temperature": args.temperature,
+            "top_p": args.top_p,
+            "max_new_tokens": args.max_new_tokens,
+            "decode_score_mode": args.decode_score_mode,
+            "decode_prompt_styles": {
+                style: sum(
+                    1 for ex in subset if ex.get("decode_prompt_style") == style
+                )
+                for style in sorted(
+                    set(ex.get("decode_prompt_style", "unknown") for ex in subset)
+                )
+            },
         }
         if prompt_type == "decode_task":
             n_recognized = sum(1 for s in scores if s["recognized"])
