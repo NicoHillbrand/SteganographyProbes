@@ -32,7 +32,6 @@ parser.add_argument("--dataset", type=str, default="data/combined_dataset.jsonl"
                     help="Path to dataset JSONL (stego detection task)")
 parser.add_argument("--scenarios", type=str, default=None,
                     help="Path to game scenarios JSONL (optional, runs game eval too)")
-parser.add_argument("--output_dir", type=str, default="data/activations")
 parser.add_argument("--batch_size", type=int, default=4)
 parser.add_argument("--max_examples", type=int, default=None,
                     help="Limit number of examples (for testing)")
@@ -282,7 +281,7 @@ def generate_responses(
 # TASK 1: STEGO DETECTION (can the model's activations distinguish stego?)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_stego_detection(model, tokenizer, dataset_path, output_dir):
+def run_stego_detection(model, tokenizer, dataset_path):
     """Feed stego and clean texts through model, extract activations."""
 
     print(f"\n{'='*60}")
@@ -380,7 +379,7 @@ def run_stego_detection(model, tokenizer, dataset_path, output_dir):
 # TASK 2: GAME SCENARIOS (does model B act on stego covertly?)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, output_dir):
+def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path):
     """Run game scenarios: generate Model B responses and extract activations.
 
     Supports both v1 format (no input_text, loads stego/clean from dataset)
@@ -581,7 +580,7 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
 # ═══════════════════════════════════════════════════════════════════════════════
 # TASK 3: DECODE TASK (does the model recognize stego when asked to decode?)
 # ═══════════════════════════════════════════════════════════════════════════════
-def run_decode_task(model, tokenizer, decode_task_path, output_dir):
+def run_decode_task(model, tokenizer, decode_task_path):
     """Run decode/benign prompts, extract activations, generate + score responses."""
 
     print(f"\n{'='*60}")
@@ -756,17 +755,17 @@ if __name__ == "__main__":
 
     run_dir = None
     if args.decode_task and os.path.exists(args.decode_task):
-        run_dir = run_decode_task(model, tokenizer, args.decode_task, args.output_dir)
+        run_dir = run_decode_task(model, tokenizer, args.decode_task)
     elif args.decode_task:
         print(f"Decode task not found: {args.decode_task}, skipping decode task")
     elif args.scenarios and os.path.exists(args.scenarios):
         _, _, run_dir = run_game_scenarios(
-            model, tokenizer, args.scenarios, args.dataset, args.output_dir
+            model, tokenizer, args.scenarios, args.dataset
         )
     elif args.scenarios:
         print(f"Scenarios not found: {args.scenarios}, skipping game task")
     elif os.path.exists(args.dataset):
-        _, _, run_dir = run_stego_detection(model, tokenizer, args.dataset, args.output_dir)
+        _, _, run_dir = run_stego_detection(model, tokenizer, args.dataset)
     else:
         print(f"Dataset not found: {args.dataset}, skipping stego detection task")
 
