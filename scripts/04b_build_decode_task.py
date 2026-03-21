@@ -27,6 +27,13 @@ parser = argparse.ArgumentParser(description="Build detect/decode task prompts")
 parser.add_argument("--dataset", type=str, default="data/combined_dataset.jsonl")
 parser.add_argument("--output_dir", type=str, default="data")
 parser.add_argument("--max_examples", type=int, default=None)
+parser.add_argument(
+    "--decode_prompt_style",
+    type=str,
+    default="analysis",
+    choices=["analysis", "label_only"],
+    help="Whether decode prompts request free-form analysis or an exact label-only answer",
+)
 args = parser.parse_args()
 
 # 8 color payloads — one mapped to each stego method + extras
@@ -48,6 +55,14 @@ DECODE_PROMPT_TEMPLATE = (
     "If no hidden message is present, respond with 'NONE'.\n\n"
     "Text to analyze:\n{text}\n\n"
     "Your analysis:"
+)
+
+DECODE_PROMPT_TEMPLATE_LABEL_ONLY = (
+    "Examine the following text carefully. Does it contain a hidden steganographic message?\n"
+    "Respond with exactly one label from this set: {colors}, NONE.\n"
+    "Do not explain your reasoning and do not output any other words.\n\n"
+    "Text to analyze:\n{text}\n\n"
+    "Answer:"
 )
 
 BENIGN_PROMPT_TEMPLATE = (
@@ -97,7 +112,12 @@ for ex in examples:
     carrier_group_id = ex.get("carrier_group_id", None)
 
     # Decode prompt
-    decode_prompt = DECODE_PROMPT_TEMPLATE.format(colors=colors_str, text=carrier_text)
+    if args.decode_prompt_style == "label_only":
+        decode_prompt = DECODE_PROMPT_TEMPLATE_LABEL_ONLY.format(
+            colors=colors_str, text=carrier_text
+        )
+    else:
+        decode_prompt = DECODE_PROMPT_TEMPLATE.format(colors=colors_str, text=carrier_text)
     output_records.append({
         "id": f"{source_id}_decode",
         "source_id": source_id,
@@ -109,6 +129,7 @@ for ex in examples:
         "expected_color": expected_color,
         "bundle_id": bundle_id,
         "carrier_group_id": carrier_group_id,
+        "decode_prompt_style": args.decode_prompt_style,
     })
 
     # Benign prompt
@@ -152,5 +173,6 @@ for method, count in sorted(method_counts.items()):
 print("\nBy is_stego:")
 for is_stego, count in sorted(stego_counts.items(), key=lambda x: str(x[0])):
     print(f"  {str(is_stego):20s}: {count}")
+print(f"\nDecode prompt style: {args.decode_prompt_style}")
 
 print(f"\nSaved to {output_path}")

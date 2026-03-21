@@ -1,11 +1,12 @@
 """
 Step 8: Plot headline figures from probe and baseline results.
 
-Reads JSON results from steps 6 and 7 and produces 4 figures:
+Reads JSON results from steps 6 and 7 and produces up to 5 figures:
   1. Layerwise AUROC for stego presence detection
   2. Layerwise AUROC for decode task (recognition)
-  3. Same-carrier control: decode vs benign prompt
-  4. Per-method breakdown: activation probe vs text baseline
+  3. Method-sliced best-layer AUROC (all vs hard subsets)
+  4. Per-method AUROC: activation probe vs char baseline
+  5. Cross-method transfer heatmap (optional)
 
 Usage:
     python scripts/08_plot_results.py
@@ -19,30 +20,53 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
+
+SUBSET_LABELS = {
+    "all_methods": "All methods",
+    "hard_plus_acrostic": "Synonym + acrostic",
+    "synonym_only": "Synonym only",
+    "easy_methods": "Easy methods",
+}
+
+
 parser = argparse.ArgumentParser(description="Plot headline figures from probe results")
-parser.add_argument("--results_dir", type=str, default="data/probe_results",
-                    help="Directory containing probe/baseline result JSONs")
-parser.add_argument("--output_dir", type=str, default="data/figures",
-                    help="Directory to save figures")
-parser.add_argument("--format", type=str, default="png", choices=["png", "pdf"],
-                    help="Output figure format")
+parser.add_argument(
+    "--results_dir",
+    type=str,
+    default="data/probe_results",
+    help="Directory containing probe/baseline result JSONs",
+)
+parser.add_argument(
+    "--output_dir",
+    type=str,
+    default="data/figures",
+    help="Directory to save figures",
+)
+parser.add_argument(
+    "--format",
+    type=str,
+    default="png",
+    choices=["png", "pdf"],
+    help="Output figure format",
+)
 args = parser.parse_args()
 
 
-# --- Style setup ---
-plt.rcParams.update({
-    "figure.facecolor": "white",
-    "axes.facecolor": "white",
-    "axes.grid": True,
-    "grid.alpha": 0.3,
-    "font.size": 12,
-    "axes.titlesize": 14,
-    "axes.labelsize": 12,
-    "xtick.labelsize": 10,
-    "ytick.labelsize": 10,
-    "legend.fontsize": 10,
-    "figure.dpi": 150,
-})
+plt.rcParams.update(
+    {
+        "figure.facecolor": "white",
+        "axes.facecolor": "white",
+        "axes.grid": True,
+        "grid.alpha": 0.3,
+        "font.size": 12,
+        "axes.titlesize": 14,
+        "axes.labelsize": 12,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+        "figure.dpi": 150,
+    }
+)
 
 
 def load_json(path):
@@ -53,68 +77,120 @@ def load_json(path):
         return json.load(f)
 
 
-def extract_layerwise(results):
-    """Extract sorted layer indices, mean AUROCs, and std AUROCs from results_by_layer."""
-    rbl = results["results_by_layer"]
-    layers = sorted(int(k) for k in rbl.keys())
-    mean_aurocs = [rbl[str(layer_idx)]["mean_auc_roc"] for layer_idx in layers]
-    # Compute std of AUC across seeds if available
-    std_aurocs = []
-    for layer_idx in layers:
-        per_seed = rbl[str(layer_idx)].get("per_seed", [])
-        if per_seed:
-            std_aurocs.append(float(np.std([s["auc_roc"] for s in per_seed])))
+def extract_layerwise_metric(results, metric="mean_auc_roc"):
+    """Extract sorted layer indices, means, and stds for one metric."""
+    results_by_layer = results["results_by_layer"]
+    layers = sorted(int(key) for key in results_by_layer.keys())
+    means = [results_by_layer[str(layer)][metric] for layer in layers]
+
+    std_metric = metric.replace("mean_", "std_")
+    stds = []
+    for layer in layers:
+        layer_result = results_by_layer[str(layer)]
+        if std_metric in layer_result:
+            stds.append(layer_result[std_metric])
         else:
-            std_aurocs.append(0.0)
-    return np.array(layers), np.array(mean_aurocs), np.array(std_aurocs)
+            per_seed = layer_result.get("per_seed", [])
+            stds.append(float(np.std([seed_result["auc_roc"] for seed_result in per_seed])) if per_seed else 0.0)
+
+    return np.array(layers), np.array(means), np.array(stds)
 
 
-def plot_layerwise_auroc(probe_results, baseline_results, task_label, title, output_path):
+def plot_layerwise_metric(probe_results, baseline_results, title, output_path):
     """Plot layerwise AUROC with optional baseline horizontal lines."""
-    layers, mean_aurocs, std_aurocs = extract_layerwise(probe_results)
+    layers, mean_aurocs, std_aurocs = extract_layerwise_metric(probe_results)
 
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.errorbar(layers, mean_aurocs, yerr=std_aurocs, fmt="o-", capsize=3,
-                linewidth=2, markersize=5, label="Activation probe", color="#1f77b4")
+    ax.errorbar(
+        layers,
+        mean_aurocs,
+        yerr=std_aurocs,
+        fmt="o-",
+        capsize=3,
+        linewidth=2,
+        markersize=5,
+        label="Activation probe",
+        color="#1f77b4",
+    )
 
-    # Baseline horizontal lines
     if baseline_results:
         baselines = baseline_results.get("baselines", {})
         colors = {"char_features": "#d62728", "tfidf_char_ngram": "#ff7f0e"}
-        labels = {"char_features": "Char features baseline", "tfidf_char_ngram": "TF-IDF char n-gram baseline"}
-        for key, bl in baselines.items():
-            if isinstance(bl, dict) and "mean_auc_roc" in bl:
-                ax.axhline(y=bl["mean_auc_roc"], linestyle="--", linewidth=1.5,
-                           color=colors.get(key, "gray"), label=labels.get(key, key))
+        labels = {
+            "char_features": "Char features baseline",
+            "tfidf_char_ngram": "TF-IDF char n-gram baseline",
+        }
+        for key, baseline in baselines.items():
+            if isinstance(baseline, dict) and "mean_auc_roc" in baseline:
+                ax.axhline(
+                    y=baseline["mean_auc_roc"],
+                    linestyle="--",
+                    linewidth=1.5,
+                    color=colors.get(key, "gray"),
+                    label=labels.get(key, key),
+                )
 
     ax.set_xlabel("Layer")
     ax.set_ylabel("AUROC")
     ax.set_title(title)
     ax.set_ylim(0.4, 1.02)
     ax.legend(loc="lower right")
+
+    decode_parse_mode = probe_results.get("decode_rescore_mode")
+    if decode_parse_mode and decode_parse_mode != "saved_labels":
+        ax.text(
+            0.01,
+            0.02,
+            f"decode parse mode: {decode_parse_mode}",
+            transform=ax.transAxes,
+            fontsize=9,
+            color="#444444",
+        )
+
     fig.tight_layout()
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {output_path}")
 
 
-def plot_same_carrier_control(decode_results, benign_results, output_path):
-    """Plot decode vs benign probe AUROC by layer."""
-    layers_d, aurocs_d, std_d = extract_layerwise(decode_results)
-    layers_b, aurocs_b, std_b = extract_layerwise(benign_results)
+def plot_subset_comparison(stego_results, baseline_results, output_path):
+    """Compare best-layer AUROC across pooled method subsets."""
+    probe_subsets = stego_results.get("subset_results") or {}
+    baseline_subsets = {}
+    if baseline_results:
+        baseline_subsets = baseline_results.get("baselines", {}).get("subset_char", {})
+
+    ordered_subsets = [
+        key
+        for key in ("all_methods", "hard_plus_acrostic", "synonym_only", "easy_methods")
+        if key in probe_subsets or key in baseline_subsets
+    ]
+    if not ordered_subsets:
+        print("  Skipping Figure 3: no subset results available")
+        return
+
+    probe_values = [
+        probe_subsets.get(key, {}).get("mean_auc_roc", np.nan) for key in ordered_subsets
+    ]
+    baseline_values = [
+        baseline_subsets.get(key, {}).get("mean_auc_roc", np.nan) for key in ordered_subsets
+    ]
+
+    x = np.arange(len(ordered_subsets))
+    width = 0.35
 
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.errorbar(layers_d, aurocs_d, yerr=std_d, fmt="o-", capsize=3,
-                linewidth=2, markersize=5, label="Decode task", color="#1f77b4")
-    ax.errorbar(layers_b, aurocs_b, yerr=std_b, fmt="s--", capsize=3,
-                linewidth=2, markersize=5, label="Benign prompt", color="#2ca02c")
-    ax.axhline(y=0.5, linestyle=":", color="gray", alpha=0.5, label="Chance")
+    ax.bar(x - width / 2, probe_values, width, label="Activation probe", color="#1f77b4")
+    ax.bar(x + width / 2, baseline_values, width, label="Char baseline", color="#d62728")
 
-    ax.set_xlabel("Layer")
-    ax.set_ylabel("AUROC")
-    ax.set_title("Same-Carrier Control: Decode vs Benign Prompt")
-    ax.set_ylim(0.4, 1.02)
-    ax.legend(loc="lower right")
+    ax.set_xlabel("Method subset")
+    ax.set_ylabel("Best-layer AUROC")
+    ax.set_title("Best-Layer AUROC By Method Subset")
+    ax.set_xticks(x)
+    ax.set_xticklabels([SUBSET_LABELS.get(key, key) for key in ordered_subsets], rotation=20, ha="right")
+    ax.set_ylim(0.4, 1.05)
+    ax.legend()
+
     fig.tight_layout()
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
@@ -127,16 +203,16 @@ def plot_per_method_comparison(probe_results, baseline_results, output_path):
     baseline_methods = {}
     if baseline_results:
         baseline_methods = baseline_results.get("baselines", {}).get("per_method_char", {})
-        if not baseline_methods:
-            baseline_methods = baseline_results.get("per_method_char", {})
 
     all_methods = sorted(set(list(probe_methods.keys()) + list(baseline_methods.keys())))
     if not all_methods:
         print("  Skipping Figure 4: no per-method data available")
         return
 
-    probe_aurocs = [probe_methods.get(m, {}).get("mean_auc_roc", 0) for m in all_methods]
-    baseline_aurocs = [baseline_methods.get(m, {}).get("mean_auc_roc", 0) for m in all_methods]
+    probe_aurocs = [probe_methods.get(method, {}).get("mean_auc_roc", 0) for method in all_methods]
+    baseline_aurocs = [
+        baseline_methods.get(method, {}).get("mean_auc_roc", 0) for method in all_methods
+    ]
 
     x = np.arange(len(all_methods))
     width = 0.35
@@ -145,13 +221,58 @@ def plot_per_method_comparison(probe_results, baseline_results, output_path):
     ax.bar(x - width / 2, probe_aurocs, width, label="Activation probe", color="#1f77b4")
     ax.bar(x + width / 2, baseline_aurocs, width, label="Char features baseline", color="#d62728")
 
-    ax.set_xlabel("Steganography Method")
+    ax.set_xlabel("Steganography method")
     ax.set_ylabel("AUROC")
     ax.set_title("Per-Method AUROC: Activation Probe vs Text Baseline")
     ax.set_xticks(x)
     ax.set_xticklabels(all_methods, rotation=30, ha="right")
     ax.set_ylim(0.4, 1.05)
     ax.legend()
+
+    fig.tight_layout()
+    fig.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {output_path}")
+
+
+def plot_transfer_heatmap(stego_results, output_path):
+    """Plot a cross-method transfer heatmap if transfer results are available."""
+    transfer = stego_results.get("transfer_results")
+    if not transfer:
+        print("  Skipping Figure 5: no transfer matrix available")
+        return
+
+    methods = transfer.get("methods", [])
+    matrix = np.array(
+        [
+            [np.nan if value is None else value for value in row]
+            for row in transfer.get("mean_auc_roc_matrix", [])
+        ],
+        dtype=float,
+    )
+    if matrix.size == 0:
+        print("  Skipping Figure 5: empty transfer matrix")
+        return
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+    im = ax.imshow(matrix, vmin=0.4, vmax=1.0, cmap="YlGnBu")
+    ax.set_xticks(np.arange(len(methods)))
+    ax.set_yticks(np.arange(len(methods)))
+    ax.set_xticklabels(methods, rotation=30, ha="right")
+    ax.set_yticklabels(methods)
+    ax.set_xlabel("Test method")
+    ax.set_ylabel("Train method")
+    ax.set_title("Cross-Method Transfer AUROC")
+
+    for row_idx in range(matrix.shape[0]):
+        for col_idx in range(matrix.shape[1]):
+            value = matrix[row_idx, col_idx]
+            label = "NA" if np.isnan(value) else f"{value:.2f}"
+            ax.text(col_idx, row_idx, label, ha="center", va="center", color="#111111", fontsize=8)
+
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label("AUROC")
+
     fig.tight_layout()
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
@@ -163,74 +284,72 @@ def main():
     ext = args.format
     generated = []
 
-    # Load all available result files
-    stego_path = os.path.join(args.results_dir, "stego_detection_probe_results.json")
-    decode_path = os.path.join(args.results_dir, "decode_task_probe_results.json")
-    benign_path = os.path.join(args.results_dir, "benign_task_probe_results.json")
-    baseline_path = os.path.join(args.results_dir, "text_baseline_results.json")
+    stego_results = load_json(os.path.join(args.results_dir, "stego_detection_probe_results.json"))
+    decode_results = load_json(os.path.join(args.results_dir, "decode_task_probe_results.json"))
+    baseline_results = load_json(os.path.join(args.results_dir, "text_baseline_results.json"))
 
-    stego_results = load_json(stego_path)
-    decode_results = load_json(decode_path)
-    benign_results = load_json(benign_path)
-    baseline_results = load_json(baseline_path)
-
-    # --- Figure 1: Layerwise AUROC for stego detection ---
     print("Figure 1: Layerwise AUROC – Stego Presence Detection")
     if stego_results and stego_results.get("results_by_layer"):
         out = os.path.join(args.output_dir, f"fig1_layerwise_stego_detection.{ext}")
-        plot_layerwise_auroc(
-            stego_results, baseline_results,
-            "stego_detection",
+        plot_layerwise_metric(
+            stego_results,
+            baseline_results,
             "Layerwise AUROC: Stego Presence Detection",
             out,
         )
         generated.append("Figure 1")
     else:
-        print(f"  Skipping: {stego_path} not found or empty")
+        print("  Skipping: stego detection probe results not found")
 
-    # --- Figure 2: Layerwise AUROC for decode task ---
     print("Figure 2: Layerwise AUROC – Stego Recognition (Decode Task)")
     if decode_results and decode_results.get("results_by_layer"):
         out = os.path.join(args.output_dir, f"fig2_layerwise_decode_task.{ext}")
-        plot_layerwise_auroc(
-            decode_results, None,
-            "decode_task",
+        plot_layerwise_metric(
+            decode_results,
+            None,
             "Layerwise AUROC: Stego Recognition (Decode Task)",
             out,
         )
         generated.append("Figure 2")
     else:
-        print(f"  Skipping: {decode_path} not found or empty")
+        print("  Skipping: decode task probe results not found")
 
-    # --- Figure 3: Same-carrier control ---
-    print("Figure 3: Same-Carrier Control – Decode vs Benign Prompt")
-    if (decode_results and decode_results.get("results_by_layer")
-            and benign_results and benign_results.get("results_by_layer")):
-        out = os.path.join(args.output_dir, f"fig3_same_carrier_control.{ext}")
-        plot_same_carrier_control(decode_results, benign_results, out)
-        generated.append("Figure 3")
+    print("Figure 3: Best-Layer AUROC – Method Subsets")
+    if stego_results:
+        out = os.path.join(args.output_dir, f"fig3_method_subset_comparison.{ext}")
+        plot_subset_comparison(stego_results, baseline_results, out)
+        if os.path.exists(out):
+            generated.append("Figure 3")
     else:
-        print("  Skipping: decode and/or benign probe results not found")
+        print("  Skipping: stego detection probe results not found")
 
-    # --- Figure 4: Per-method breakdown ---
     print("Figure 4: Per-Method AUROC – Activation Probe vs Text Baseline")
     if stego_results:
         out = os.path.join(args.output_dir, f"fig4_per_method_comparison.{ext}")
         plot_per_method_comparison(stego_results, baseline_results, out)
-        generated.append("Figure 4")
+        if os.path.exists(out):
+            generated.append("Figure 4")
     else:
         print("  Skipping: stego detection probe results not found")
 
-    # Summary
+    print("Figure 5: Cross-Method Transfer AUROC")
+    if stego_results:
+        out = os.path.join(args.output_dir, f"fig5_cross_method_transfer.{ext}")
+        plot_transfer_heatmap(stego_results, out)
+        if os.path.exists(out):
+            generated.append("Figure 5")
+    else:
+        print("  Skipping: stego detection probe results not found")
+
     print()
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     if generated:
         print(f"Generated {len(generated)} figure(s): {', '.join(generated)}")
         print(f"Output directory: {args.output_dir}")
     else:
         print("No figures generated — result files not found.")
         print(f"Expected in: {args.results_dir}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
 
 if __name__ == "__main__":
