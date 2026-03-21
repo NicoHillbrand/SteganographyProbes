@@ -38,17 +38,25 @@ TARGET_LABELS = {
 
 parser = argparse.ArgumentParser(description="Train linear probes on activations")
 parser.add_argument(
+    "--run_dir",
+    type=str,
+    default=None,
+    help="Path to a run directory (e.g. data/Meta-Llama-3-8B-Instruct/runs/2026-03-21_whitespace). "
+         "If provided, reads activations from <run_dir>/activations/ and saves results to "
+         "<run_dir>/probe_results/. Overrides --activations_dir and --output_dir.",
+)
+parser.add_argument(
     "--task",
     type=str,
-    required=True,
-    help="Which task's activations to probe (subdirectory name under activations_dir, "
-         "e.g. game_scenarios_v2, whitespace_game_scenarios, suffix_marker_game_scenarios)",
+    default=None,
+    help="Which task's activations to probe (subdirectory name under activations_dir). "
+         "Not needed when using --run_dir.",
 )
 parser.add_argument(
     "--activations_dir",
     type=str,
     default="data/activations",
-    help="Directory containing activation .npy files",
+    help="Directory containing activation .npy files (legacy mode, use --run_dir instead)",
 )
 parser.add_argument("--test_size", type=float, default=0.2)
 parser.add_argument(
@@ -478,7 +486,25 @@ def evaluate_transfer_matrix(X_best, labels, methods_per_example, groups):
 def main():
     import sklearn.linear_model  # noqa: F401  # fail fast if scikit-learn is not installed
 
-    task_dir = os.path.join(args.activations_dir, args.task)
+    # Resolve paths: --run_dir mode vs legacy --task mode
+    if args.run_dir:
+        task_dir = os.path.join(args.run_dir, "activations")
+        output_dir = os.path.join(args.run_dir, "probe_results")
+        # Try to load task name from config
+        config_path = os.path.join(args.run_dir, "config.json")
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                run_config = json.load(f)
+            task_name = run_config.get("args", {}).get("scenarios") or args.run_dir
+        else:
+            task_name = os.path.basename(args.run_dir)
+    elif args.task:
+        task_dir = os.path.join(args.activations_dir, args.task)
+        output_dir = args.output_dir
+        task_name = args.task
+    else:
+        print("Error: provide either --run_dir or --task")
+        return
 
     if not os.path.exists(task_dir):
         print(f"Activations not found at {task_dir}")
@@ -747,15 +773,18 @@ def main():
                     X_best, labels, methods_per_example, groups
                 )
 
-    os.makedirs(args.output_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     suffix = args.output_suffix
     if suffix and not suffix.startswith("_"):
         suffix = f"_{suffix}"
-    output_path = os.path.join(args.output_dir, f"{args.task}_probe_results{suffix}.json")
+    if args.run_dir:
+        output_path = os.path.join(output_dir, f"probe_results{suffix}.json")
+    else:
+        output_path = os.path.join(output_dir, f"{args.task}_probe_results{suffix}.json")
 
     output = {
-        "task": args.task,
-        "target_label": TARGET_LABELS.get(args.task, "label"),
+        "task": task_name,
+        "target_label": TARGET_LABELS.get(args.task, "label") if args.task else "label",
         "model": meta.get("model", "unknown"),
         "n_examples": int(len(labels)),
         "n_positive": int(labels.sum()),

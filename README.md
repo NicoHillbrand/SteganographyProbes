@@ -145,10 +145,12 @@ python scripts/10_generate_suffix_marker_dataset.py --n_base_texts 1000  # suffi
 
 ```bash
 # 2. Run inference + extract activations (GPU)
+#    Each run creates an isolated directory: data/<model>/runs/YYYY-MM-DD_<scenario>/
 pip install transformers torch accelerate scikit-learn datasets
 
 # All methods (5 stego methods, 2000 scenarios)
 python scripts/05_run_inference.py --scenarios data/game_scenarios_v2.jsonl --generate --layers all
+# -> data/Meta-Llama-3-8B-Instruct/runs/2026-03-21_game_scenarios_v2/
 
 # Whitespace only (1000 pairs)
 python scripts/05_run_inference.py --scenarios data/whitespace_game_scenarios.jsonl --generate --layers all
@@ -157,18 +159,21 @@ python scripts/05_run_inference.py --scenarios data/whitespace_game_scenarios.js
 python scripts/05_run_inference.py --scenarios data/suffix_marker_game_scenarios.jsonl --generate --layers all
 ```
 
-Each scenario file gets its own activations subdirectory (named after the file).
-
 ```bash
-# 3. Train probes (CPU) — use the matching task name
+# 3. Train probes (CPU) — pass the run directory
+python scripts/06_train_probes.py --run_dir data/Meta-Llama-3-8B-Instruct/runs/2026-03-21_game_scenarios_v2
+
+# Or use legacy mode with --task (for old-style data/activations/ layout)
 python scripts/06_train_probes.py --task game_scenarios_v2
-python scripts/06_train_probes.py --task whitespace_game_scenarios
-python scripts/06_train_probes.py --task suffix_marker_game_scenarios
 ```
 
-The `--task` name must match the activations subdirectory (which matches the scenario filename).
-The probe script reads the scenario file path from the saved metadata, so it automatically
-finds the right scenario JSONL for filtering and grouping.
+```bash
+# 4. Generate figures — pass the same run directory
+python scripts/08_plot_results.py --run_dir data/Meta-Llama-3-8B-Instruct/runs/2026-03-21_game_scenarios_v2
+```
+
+Each run directory contains `config.json` (full args, git hash, timestamp), `activations/`,
+`probe_results/`, and `figures/`. Runs never overwrite each other.
 
 ## Research Questions
 
