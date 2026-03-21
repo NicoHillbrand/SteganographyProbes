@@ -79,6 +79,8 @@ parser.add_argument(
     choices=["unique_anywhere", "anchored_last", "last_label"],
     help="How to score decode-task responses into labels during inference",
 )
+parser.add_argument("--run_name", type=str, default=None,
+                    help="Explicit run directory name (default: auto-generated from scenario/dataset filename)")
 args = parser.parse_args()
 
 
@@ -330,9 +332,20 @@ def run_stego_detection(model, tokenizer, dataset_path, output_dir):
         args.token_position, args.max_length, args.batch_size
     )
 
-    # Save
-    task_dir = os.path.join(output_dir, "stego_detection")
+    # Save to run directory
+    from run_utils import create_run_dir, save_run_config
+    run_dir = create_run_dir(
+        model_name=args.model,
+        dataset_path=dataset_path,
+        run_name=args.run_name or "stego_detection",
+    )
+    task_dir = os.path.join(run_dir, "activations")
     os.makedirs(task_dir, exist_ok=True)
+    save_run_config(run_dir, vars(args), extra_metadata={
+        "task_type": "stego_detection",
+        "n_examples": len(examples),
+        "n_stego": sum(labels),
+    })
 
     save_activation_outputs(task_dir, activations, layer_indices, args.token_position)
 
@@ -359,7 +372,8 @@ def run_stego_detection(model, tokenizer, dataset_path, output_dir):
     print(f"  Layers: {len(layer_indices)} x shape {activation_shape_for_logging(activations, layer_indices[0])}")
     print(f"  Labels: {sum(labels)} stego, {len(labels) - sum(labels)} clean")
 
-    return activations, labels
+    print(f"\nRun saved to {run_dir}/")
+    return activations, labels, run_dir
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -480,10 +494,20 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
         args.token_position, args.max_length, args.batch_size
     )
 
-    # Save — use scenario filename as subdirectory to avoid overwriting between datasets
-    scenario_name = os.path.splitext(os.path.basename(scenarios_path))[0]
-    task_dir = os.path.join(output_dir, scenario_name)
+    # Save to run directory
+    from run_utils import create_run_dir, save_run_config
+    run_dir = create_run_dir(
+        model_name=args.model,
+        scenario_path=scenarios_path,
+        run_name=args.run_name,
+    )
+    task_dir = os.path.join(run_dir, "activations")
     os.makedirs(task_dir, exist_ok=True)
+    save_run_config(run_dir, vars(args), extra_metadata={
+        "task_type": "game_scenarios",
+        "n_scenarios": len(scenarios),
+        "format_version": "v2" if is_v2 else "v1",
+    })
 
     save_activation_outputs(task_dir, activations, layer_indices, args.token_position)
 
@@ -549,8 +573,9 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
             for r in results:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
-    print(f"\nSaved to {task_dir}/")
-    return activations, labels
+    print(f"\nRun saved to {run_dir}/")
+    print(f"  Activations: {task_dir}/")
+    return activations, labels, run_dir
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -585,6 +610,19 @@ def run_decode_task(model, tokenizer, decode_task_path, output_dir):
     n_layers = model.config.num_hidden_layers
     layer_indices = parse_layer_spec(args.layers, n_layers)
     print(f"Extracting activations from {len(layer_indices)} layers: {layer_indices}")
+
+    # Create run directory
+    from run_utils import create_run_dir, save_run_config
+    run_dir = create_run_dir(
+        model_name=args.model,
+        dataset_path=decode_task_path,
+        run_name=args.run_name or "decode_task",
+    )
+    save_run_config(run_dir, vars(args), extra_metadata={
+        "task_type": "decode_task",
+        "n_decode": len(decode_examples),
+        "n_benign": len(benign_examples),
+    })
 
     for prompt_type, subset in [("decode_task", decode_examples), ("benign_task", benign_examples)]:
         if not subset:
@@ -638,8 +676,8 @@ def run_decode_task(model, tokenizer, decode_task_path, output_dir):
         else:
             labels = [1 if ex["is_stego"] else 0 for ex in subset]
 
-        # Save
-        task_dir = os.path.join(output_dir, prompt_type)
+        # Save into run directory
+        task_dir = os.path.join(run_dir, "activations", prompt_type)
         os.makedirs(task_dir, exist_ok=True)
 
         save_activation_outputs(task_dir, activations, layer_indices, args.token_position)
@@ -713,30 +751,25 @@ def run_decode_task(model, tokenizer, decode_task_path, output_dir):
 if __name__ == "__main__":
     model, tokenizer = load_model(args.model)
 
-    os.makedirs(args.output_dir, exist_ok=True)
-
+    run_dir = None
     if args.decode_task and os.path.exists(args.decode_task):
         run_decode_task(model, tokenizer, args.decode_task, args.output_dir)
     elif args.decode_task:
         print(f"Decode task not found: {args.decode_task}, skipping decode task")
     elif args.scenarios and os.path.exists(args.scenarios):
-        run_game_scenarios(
+        _, _, run_dir = run_game_scenarios(
             model, tokenizer, args.scenarios, args.dataset, args.output_dir
         )
     elif args.scenarios:
         print(f"Scenarios not found: {args.scenarios}, skipping game task")
     elif os.path.exists(args.dataset):
-        run_stego_detection(model, tokenizer, args.dataset, args.output_dir)
+        _, _, run_dir = run_stego_detection(model, tokenizer, args.dataset, args.output_dir)
     else:
         print(f"Dataset not found: {args.dataset}, skipping stego detection task")
 
     print(f"\n{'='*60}")
-    print("Done! Next step:")
-    if args.scenarios:
-        task_name = os.path.splitext(os.path.basename(args.scenarios))[0]
-        print(f"  python scripts/06_train_probes.py --task {task_name}")
-    elif args.decode_task:
-        print(f"  python scripts/06_train_probes.py --task decode_task")
-    else:
-        print(f"  python scripts/06_train_probes.py --task stego_detection")
+    print("Done!")
+    if run_dir:
+        print(f"  Run directory: {run_dir}")
+        print(f"  Next: python scripts/06_train_probes.py --run_dir {run_dir}")
     print(f"{'='*60}")

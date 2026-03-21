@@ -31,16 +31,22 @@ SUBSET_LABELS = {
 
 parser = argparse.ArgumentParser(description="Plot headline figures from probe results")
 parser.add_argument(
+    "--run_dir",
+    type=str,
+    default=None,
+    help="If provided, read results from <run_dir>/probe_results/ and save figures to <run_dir>/figures/",
+)
+parser.add_argument(
     "--results_dir",
     type=str,
     default="data/probe_results",
-    help="Directory containing probe/baseline result JSONs",
+    help="Directory containing probe/baseline result JSONs (legacy, use --run_dir instead)",
 )
 parser.add_argument(
     "--output_dir",
     type=str,
     default="data/figures",
-    help="Directory to save figures",
+    help="Directory to save figures (legacy, use --run_dir instead)",
 )
 parser.add_argument(
     "--format",
@@ -280,17 +286,25 @@ def plot_transfer_heatmap(stego_results, output_path):
 
 
 def main():
-    os.makedirs(args.output_dir, exist_ok=True)
+    # Resolve paths from --run_dir or legacy args
+    if args.run_dir:
+        results_dir = os.path.join(args.run_dir, "probe_results")
+        output_dir = os.path.join(args.run_dir, "figures")
+    else:
+        results_dir = args.results_dir
+        output_dir = args.output_dir
+
+    os.makedirs(output_dir, exist_ok=True)
     ext = args.format
     generated = []
 
-    stego_results = load_json(os.path.join(args.results_dir, "stego_detection_probe_results.json"))
-    decode_results = load_json(os.path.join(args.results_dir, "decode_task_probe_results.json"))
-    baseline_results = load_json(os.path.join(args.results_dir, "text_baseline_results.json"))
+    stego_results = load_json(os.path.join(results_dir, "stego_detection_probe_results.json"))
+    decode_results = load_json(os.path.join(results_dir, "decode_task_probe_results.json"))
+    baseline_results = load_json(os.path.join(results_dir, "text_baseline_results.json"))
 
     print("Figure 1: Layerwise AUROC – Stego Presence Detection")
     if stego_results and stego_results.get("results_by_layer"):
-        out = os.path.join(args.output_dir, f"fig1_layerwise_stego_detection.{ext}")
+        out = os.path.join(output_dir, f"fig1_layerwise_stego_detection.{ext}")
         plot_layerwise_metric(
             stego_results,
             baseline_results,
@@ -303,7 +317,7 @@ def main():
 
     print("Figure 2: Layerwise AUROC – Stego Recognition (Decode Task)")
     if decode_results and decode_results.get("results_by_layer"):
-        out = os.path.join(args.output_dir, f"fig2_layerwise_decode_task.{ext}")
+        out = os.path.join(output_dir, f"fig2_layerwise_decode_task.{ext}")
         plot_layerwise_metric(
             decode_results,
             None,
@@ -316,7 +330,7 @@ def main():
 
     print("Figure 3: Best-Layer AUROC – Method Subsets")
     if stego_results:
-        out = os.path.join(args.output_dir, f"fig3_method_subset_comparison.{ext}")
+        out = os.path.join(output_dir, f"fig3_method_subset_comparison.{ext}")
         plot_subset_comparison(stego_results, baseline_results, out)
         if os.path.exists(out):
             generated.append("Figure 3")
@@ -325,7 +339,7 @@ def main():
 
     print("Figure 4: Per-Method AUROC – Activation Probe vs Text Baseline")
     if stego_results:
-        out = os.path.join(args.output_dir, f"fig4_per_method_comparison.{ext}")
+        out = os.path.join(output_dir, f"fig4_per_method_comparison.{ext}")
         plot_per_method_comparison(stego_results, baseline_results, out)
         if os.path.exists(out):
             generated.append("Figure 4")
@@ -334,7 +348,7 @@ def main():
 
     print("Figure 5: Cross-Method Transfer AUROC")
     if stego_results:
-        out = os.path.join(args.output_dir, f"fig5_cross_method_transfer.{ext}")
+        out = os.path.join(output_dir, f"fig5_cross_method_transfer.{ext}")
         plot_transfer_heatmap(stego_results, out)
         if os.path.exists(out):
             generated.append("Figure 5")
@@ -345,10 +359,10 @@ def main():
     print(f"{'=' * 60}")
     if generated:
         print(f"Generated {len(generated)} figure(s): {', '.join(generated)}")
-        print(f"Output directory: {args.output_dir}")
+        print(f"Output directory: {output_dir}")
     else:
         print("No figures generated — result files not found.")
-        print(f"Expected in: {args.results_dir}")
+        print(f"Expected in: {results_dir}")
     print(f"{'=' * 60}")
 
 

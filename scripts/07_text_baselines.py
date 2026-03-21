@@ -46,6 +46,8 @@ parser.add_argument("--dataset", type=str, default="data/combined_dataset.jsonl"
 parser.add_argument("--test_size", type=float, default=0.2)
 parser.add_argument("--n_seeds", type=int, default=5)
 parser.add_argument("--output_dir", type=str, default="data/probe_results")
+parser.add_argument("--run_dir", type=str, default=None,
+                    help="If provided, save results to <run_dir>/text_baselines/")
 parser.add_argument(
     "--class_weight",
     type=str,
@@ -423,11 +425,12 @@ def main():
     print("=" * 60)
     subset_results = evaluate_subset_results(X_char, labels, methods, groups)
 
-    os.makedirs(args.output_dir, exist_ok=True)
+    out_dir = os.path.join(args.run_dir, "text_baselines") if args.run_dir else args.output_dir
+    os.makedirs(out_dir, exist_ok=True)
     suffix = args.output_suffix
     if suffix and not suffix.startswith("_"):
         suffix = f"_{suffix}"
-    output_path = os.path.join(args.output_dir, f"text_baseline_results{suffix}.json")
+    output_path = os.path.join(out_dir, f"text_baseline_results{suffix}.json")
 
     output = {
         "dataset": args.dataset,
