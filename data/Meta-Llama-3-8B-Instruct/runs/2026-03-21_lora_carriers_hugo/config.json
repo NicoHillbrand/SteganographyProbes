@@ -1,0 +1,34 @@
+{
+  "timestamp": "2026-03-21T18:07:00",
+  "description": "Partial LoRA carrier generation on hugo branch (abandoned in favor of Redwood-only dataset redesign)",
+  "task_type": "lora_carrier_generation",
+  "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+  "lora_adapter": "worta/TrojanStego-LLama3-8B-LoRA",
+  "method": "token_bucket",
+  "source": "trojanstego_lora",
+  "generation_args": {
+    "n_per_prompt": 3,
+    "n_prompts_expected": 99,
+    "temperature": 0.7,
+    "max_new_tokens": 256,
+    "top_p": 0.9
+  },
+  "status": "partial",
+  "completion": "54/99 prompts (151 raw rows)",
+  "audit_summary": {
+    "actual_total": 319,
+    "n_stego": 160,
+    "n_clean": 159,
+    "n_groups": 54,
+    "n_fully_paired": 53,
+    "n_contaminated_clean": 24,
+    "completeness_pct": 53.7
+  },
+  "files": {
+    "lora_carriers.jsonl": "Raw generation output (151 rows at time of kill)",
+    "lora_carriers_filtered.jsonl": "Audit-filtered output (270 rows from earlier run)",
+    "lora_audit.json": "Full audit report",
+    "10_audit_lora_dataset.py": "Audit script snapshot"
+  },
+  "notes": "Abandoned per team decision to use Redwood methods only with paired stego/clean design. TrojanStego token_bucket encoding deemed too hard for LLM to decode."
+}
