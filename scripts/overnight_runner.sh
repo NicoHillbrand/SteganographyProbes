@@ -81,10 +81,10 @@ status "============================================================"
 
 # ── STEP 0: Wait for T9 (LoRA carrier generation) if still running ──────────
 
-T9_PIDS=$(pgrep -f "01b_generate_lora_carriers" || true)
+T9_PIDS=$(pgrep -f "python3 scripts/01b_generate_lora_carriers.py" || true)
 if [ -n "$T9_PIDS" ]; then
     step_start "T9: waiting for running LoRA generation (PID(s) $(echo "$T9_PIDS" | tr '\n' ' ' | xargs))"
-    while pgrep -f "01b_generate_lora_carriers" >/dev/null 2>&1; do
+    while pgrep -f "python3 scripts/01b_generate_lora_carriers.py" >/dev/null 2>&1; do
         ROWS=$(wc -l < data/lora_carriers.jsonl 2>/dev/null || echo 0)
         log "  T9 still running — $ROWS rows so far"
         sleep 60
