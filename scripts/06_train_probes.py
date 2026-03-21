@@ -118,25 +118,31 @@ def main():
         sequence_lengths = np.load(os.path.join(task_dir, seq_path))
 
     # T4: For game scenarios, filter to misaligned conditions only (same system
-    # prompt) and use observed keyword labels when available.
+    # prompt), use observed keyword labels when available, and set up grouped
+    # splits by carrier_group_id.
+    groups = None
+    methods_per_example = None
     if args.task == "game_scenarios":
-        scenarios_path = "data/game_scenarios.jsonl"
+        # Try v2 first, fall back to v1
+        scenarios_path = "data/game_scenarios_v2.jsonl"
+        if not os.path.exists(scenarios_path):
+            scenarios_path = "data/game_scenarios.jsonl"
         responses_path = os.path.join(task_dir, "responses.jsonl")
         example_ids = meta.get("ids", [])
 
         if os.path.exists(scenarios_path) and example_ids:
-            id_to_condition = {}
-            with open(scenarios_path) as f:
+            id_to_scenario = {}
+            with open(scenarios_path, encoding="utf-8") as f:
                 for line in f:
                     if not line.strip():
                         continue
                     s = json.loads(line)
-                    id_to_condition[s["id"]] = s["condition"]
+                    id_to_scenario[s["id"]] = s
 
             # Use observed labels from generation if available
             id_to_observed = {}
             if os.path.exists(responses_path):
-                with open(responses_path) as f:
+                with open(responses_path, encoding="utf-8") as f:
                     for line in f:
                         if not line.strip():
                             continue
@@ -148,7 +154,7 @@ def main():
 
             # Keep only misaligned conditions (same system prompt, no confound)
             keep_mask = np.array([
-                id_to_condition.get(eid, "") in ("misaligned_with_stego", "misaligned_no_stego")
+                id_to_scenario.get(eid, {}).get("condition", "") in ("misaligned_with_stego", "misaligned_no_stego")
                 for eid in example_ids
             ])
             n_before = len(labels)
@@ -162,7 +168,26 @@ def main():
 
             print(f"Game scenarios: kept {len(labels)}/{n_before} (misaligned only)")
 
-            # Filter activation .npy files will be sliced during probe training below
+            # Extract carrier_group_id for grouped splits
+            group_list = [id_to_scenario.get(eid, {}).get("carrier_group_id") for eid in example_ids_filtered]
+            if all(g is not None for g in group_list):
+                groups = np.array(group_list)
+                print(f"Using grouped splits by carrier_group_id: {len(set(groups.tolist()))} unique groups")
+
+            # Extract stego_method for per-method breakdown
+            method_list = [id_to_scenario.get(eid, {}).get("stego_method") for eid in example_ids_filtered]
+            # For clean scenarios stego_method is the prompt method (what it was told to look for)
+            # For per-method breakdown, map misaligned_with_stego to their method, clean to "clean"
+            condition_list = [id_to_scenario.get(eid, {}).get("condition", "") for eid in example_ids_filtered]
+            method_labels = []
+            for cond, method in zip(condition_list, method_list):
+                if cond == "misaligned_with_stego" and method:
+                    method_labels.append(method)
+                else:
+                    method_labels.append("clean")
+            methods_per_example = np.array(method_labels)
+            print(f"Per-method breakdown available: {dict(zip(*np.unique(methods_per_example, return_counts=True)))}")
+
             # Store the mask for slicing layer arrays
             _game_keep_mask = keep_mask
         else:
@@ -171,7 +196,9 @@ def main():
         _game_keep_mask = None
 
     # Load group IDs for grouped splitting (T1)
-    groups = None
+    # game_scenarios already set groups and methods_per_example above
+    if args.task != "game_scenarios":
+        groups = None
     dataset_path = None
     if args.task == "stego_detection":
         dataset_path = "data/combined_dataset.jsonl"
@@ -205,7 +232,9 @@ def main():
                 print("Warning: some examples missing group IDs, falling back to random splits")
 
     # Load method info for per-method breakdown (T3)
-    methods_per_example = None
+    # game_scenarios already set methods_per_example above
+    if args.task != "game_scenarios":
+        methods_per_example = None
     if args.task in ("decode_task", "benign_task"):
         methods_list = meta.get("methods", {})
         example_ids = meta.get("ids", [])
