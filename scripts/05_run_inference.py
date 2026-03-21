@@ -660,5 +660,12 @@ if __name__ == "__main__":
         print(f"Dataset not found: {args.dataset}, skipping stego detection task")
 
     print(f"\n{'='*60}")
-    print("Done! Next step: run scripts/06_train_probes.py")
+    print("Done! Next step:")
+    if args.scenarios:
+        task_name = os.path.splitext(os.path.basename(args.scenarios))[0]
+        print(f"  python scripts/06_train_probes.py --task {task_name}")
+    elif args.decode_task:
+        print(f"  python scripts/06_train_probes.py --task decode_task")
+    else:
+        print(f"  python scripts/06_train_probes.py --task stego_detection")
     print(f"{'='*60}")

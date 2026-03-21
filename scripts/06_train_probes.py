@@ -195,8 +195,10 @@ def main():
             methods_per_example = np.array(method_labels)
             print(f"Per-method breakdown available: {dict(zip(*np.unique(methods_per_example, return_counts=True)))}")
 
-            # Store the mask for slicing layer arrays
+            # Store the mask for slicing layer arrays and sequence lengths
             _game_keep_mask = keep_mask
+            if sequence_lengths is not None:
+                sequence_lengths = sequence_lengths[keep_mask]
         else:
             _game_keep_mask = None
     else:
