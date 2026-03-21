@@ -298,9 +298,19 @@ def main():
     ext = args.format
     generated = []
 
-    stego_results = load_json(os.path.join(results_dir, "stego_detection_probe_results.json"))
+    # In --run_dir mode, probe results are saved as probe_results.json;
+    # in legacy mode, they have task-specific names
+    stego_results = (
+        load_json(os.path.join(results_dir, "probe_results.json"))
+        or load_json(os.path.join(results_dir, "stego_detection_probe_results.json"))
+    )
     decode_results = load_json(os.path.join(results_dir, "decode_task_probe_results.json"))
-    baseline_results = load_json(os.path.join(results_dir, "text_baseline_results.json"))
+    # Text baselines may be in a sibling directory in --run_dir mode
+    baseline_dir = os.path.join(os.path.dirname(results_dir), "text_baselines") if args.run_dir else results_dir
+    baseline_results = (
+        load_json(os.path.join(baseline_dir, "text_baseline_results.json"))
+        or load_json(os.path.join(results_dir, "text_baseline_results.json"))
+    )
 
     print("Figure 1: Layerwise AUROC – Stego Presence Detection")
     if stego_results and stego_results.get("results_by_layer"):
