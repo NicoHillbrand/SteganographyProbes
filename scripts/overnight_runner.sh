@@ -115,8 +115,9 @@ fi
 
 # ── STEP 2: T11 — Presence inference (Redwood-only, all layers) ─────────────
 
-T11_DIR="data/activations/stego_detection"
-run_step "T11: presence inference (Redwood, bf16, 32 layers)" 2 14400 "$T11_DIR/metadata.json" \
+MODEL_DIR="data/Meta-Llama-3-8B-Instruct/runs"
+T11_DIR="$MODEL_DIR/stego_detection"
+run_step "T11: presence inference (Redwood, bf16, 32 layers)" 2 14400 "$T11_DIR/activations/metadata.json" \
     python3 scripts/05_run_inference.py \
         --model meta-llama/Meta-Llama-3-8B-Instruct \
         --dataset data/combined_dataset.jsonl \
@@ -125,18 +126,19 @@ run_step "T11: presence inference (Redwood, bf16, 32 layers)" 2 14400 "$T11_DIR/
         --layers all \
         --token_position last \
         --batch_size 8 \
-        --max_length 512
+        --max_length 512 \
+        --run_name stego_detection
 
 # ── STEP 3: T10 — Decode task inference ─────────────────────────────────────
 
-DECODE_DIR="data/activations/decode_task"
-BENIGN_DIR="data/activations/benign_task"
-run_step "T10: decode task inference" 2 14400 "$BENIGN_DIR/metadata.json" \
+DECODE_RUN="$MODEL_DIR/decode_task"
+run_step "T10: decode task inference" 2 14400 "$DECODE_RUN/activations/decode_task/metadata.json" \
     python3 scripts/05_run_inference.py \
         --model meta-llama/Meta-Llama-3-8B-Instruct \
         --decode_task data/decode_task.jsonl \
         --use_chat_template \
         --generate \
+        --run_name decode_task \
         --layers all \
         --token_position last \
         --batch_size 4 \
@@ -145,58 +147,50 @@ run_step "T10: decode task inference" 2 14400 "$BENIGN_DIR/metadata.json" \
 
 # ── STEP 4: Text baselines (CPU, fast) ──────────────────────────────────────
 
-run_step "T2: text baselines" 1 600 "data/probe_results/text_baseline_results.json" \
-    python3 scripts/07_text_baselines.py --dataset data/combined_dataset.jsonl
+run_step "T2: text baselines" 1 600 "$T11_DIR/text_baselines/text_baseline_results.json" \
+    python3 scripts/07_text_baselines.py --dataset data/combined_dataset.jsonl --run_dir "$T11_DIR"
 
 # ── STEP 5: T12 — Train probes (stego detection) ───────────────────────────
 
-if [ -f "$T11_DIR/metadata.json" ]; then
-    run_step "T12a: stego detection probes" 2 1800 "data/probe_results/stego_detection_probe_results.json" \
-        python3 scripts/06_train_probes.py --task stego_detection
+if [ -f "$T11_DIR/activations/metadata.json" ]; then
+    run_step "T12a: stego detection probes" 2 1800 "$T11_DIR/probe_results/probe_results.json" \
+        python3 scripts/06_train_probes.py --run_dir "$T11_DIR"
 else
     step_fail "T12a: stego detection probes" "T11 activations missing"
 fi
 
 # ── STEP 6: T12 — Train probes (decode task) ───────────────────────────────
 
-if [ -f "$DECODE_DIR/metadata.json" ]; then
-    run_step "T12b: decode task probes" 2 1800 "data/probe_results/decode_task_probe_results.json" \
-        python3 scripts/06_train_probes.py --task decode_task
+if [ -f "$DECODE_RUN/activations/decode_task/metadata.json" ]; then
+    run_step "T12b: decode task probes" 2 1800 "$DECODE_RUN/probe_results/probe_results.json" \
+        python3 scripts/06_train_probes.py --run_dir "$DECODE_RUN"
 else
     step_fail "T12b: decode task probes" "T10 activations missing"
-fi
-
-# ── STEP 7: T12 — Train probes (benign task) ───────────────────────────────
-
-if [ -f "$BENIGN_DIR/metadata.json" ]; then
-    run_step "T12c: benign task probes" 2 1800 "data/probe_results/benign_task_probe_results.json" \
-        python3 scripts/06_train_probes.py --task benign_task
-else
-    step_fail "T12c: benign task probes" "benign activations missing"
 fi
 
 # ── STEP 8: Generate plots ─────────────────────────────────────────────────
 
 run_step "T12d: headline figures" 2 300 "" \
-    python3 scripts/08_plot_results.py
+    python3 scripts/08_plot_results.py --run_dir "$T11_DIR"
 
 # ── STEP 9: Game scenarios (bonus) ──────────────────────────────────────────
 
-GAME_DIR="data/activations/game_scenarios"
-run_step "T4: game scenario inference" 1 7200 "$GAME_DIR/metadata.json" \
+GAME_RUN="$MODEL_DIR/game_scenarios_v2"
+run_step "T4: game scenario inference" 1 7200 "$GAME_RUN/activations/metadata.json" \
     python3 scripts/05_run_inference.py \
         --model meta-llama/Meta-Llama-3-8B-Instruct \
-        --scenarios data/game_scenarios.jsonl \
+        --scenarios data/game_scenarios_v2.jsonl \
         --dataset data/combined_dataset.jsonl \
         --use_chat_template \
         --generate \
         --layers all \
         --token_position last \
-        --batch_size 4
+        --batch_size 4 \
+        --run_name game_scenarios_v2
 
-if [ -f "$GAME_DIR/metadata.json" ]; then
-    run_step "T4b: game scenario probes" 1 1800 "data/probe_results/game_scenarios_probe_results.json" \
-        python3 scripts/06_train_probes.py --task game_scenarios
+if [ -f "$GAME_RUN/activations/metadata.json" ]; then
+    run_step "T4b: game scenario probes" 1 1800 "$GAME_RUN/probe_results/probe_results.json" \
+        python3 scripts/06_train_probes.py --run_dir "$GAME_RUN"
 fi
 
 # ── DONE ────────────────────────────────────────────────────────────────────
@@ -213,22 +207,20 @@ status "============================================================"
 status ""
 status "Output inventory:"
 for f in data/combined_dataset.jsonl data/lora_carriers.jsonl data/decode_task.jsonl \
-         data/activations/stego_detection/metadata.json \
-         data/activations/decode_task/metadata.json \
-         data/activations/benign_task/metadata.json \
-         data/activations/game_scenarios/metadata.json \
-         data/probe_results/stego_detection_probe_results.json \
-         data/probe_results/decode_task_probe_results.json \
-         data/probe_results/benign_task_probe_results.json \
-         data/probe_results/text_baseline_results.json \
-         data/probe_results/game_scenarios_probe_results.json; do
+         "$T11_DIR/activations/metadata.json" \
+         "$T11_DIR/probe_results/probe_results.json" \
+         "$T11_DIR/text_baselines/text_baseline_results.json" \
+         "$DECODE_RUN/activations/decode_task/metadata.json" \
+         "$DECODE_RUN/probe_results/probe_results.json" \
+         "$GAME_RUN/activations/metadata.json" \
+         "$GAME_RUN/probe_results/probe_results.json"; do
     if [ -f "$f" ]; then
         status "  [OK]   $f"
     else
         status "  [MISS] $f"
     fi
 done
-PNG_COUNT=$(ls data/figures/*.png 2>/dev/null | wc -l)
-status "  Figures: $PNG_COUNT PNGs in data/figures/"
+PNG_COUNT=$(find "$MODEL_DIR" -name "*.png" 2>/dev/null | wc -l)
+status "  Figures: $PNG_COUNT PNGs in $MODEL_DIR/"
 status ""
 status "Logs: /tmp/overnight.log"

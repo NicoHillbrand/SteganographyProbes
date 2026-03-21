@@ -51,7 +51,10 @@ def safe_mean(values):
 
 
 def summarize_run(run_dir):
-    decode_dir = os.path.join(run_dir, "decode_task")
+    # Support both new layout (activations/decode_task/) and old (decode_task/)
+    decode_dir = os.path.join(run_dir, "activations", "decode_task")
+    if not os.path.exists(decode_dir):
+        decode_dir = os.path.join(run_dir, "decode_task")
     metadata_path = os.path.join(decode_dir, "metadata.json")
     responses_path = os.path.join(decode_dir, "responses.jsonl")
 
