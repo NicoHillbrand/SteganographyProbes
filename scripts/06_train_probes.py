@@ -487,17 +487,25 @@ def main():
     import sklearn.linear_model  # noqa: F401  # fail fast if scikit-learn is not installed
 
     # Resolve paths: --run_dir mode vs legacy --task mode
+    task_type = None  # inferred task type for conditional logic
     if args.run_dir:
         task_dir = os.path.join(args.run_dir, "activations")
         output_dir = os.path.join(args.run_dir, "probe_results")
-        # Try to load task name from config
+        # Load task type and name from config.json
         config_path = os.path.join(args.run_dir, "config.json")
         if os.path.exists(config_path):
             with open(config_path) as f:
                 run_config = json.load(f)
-            task_name = run_config.get("args", {}).get("scenarios") or args.run_dir
+            task_type = run_config.get("task_type")
+            task_name = run_config.get("args", {}).get("scenarios") or os.path.basename(args.run_dir)
         else:
             task_name = os.path.basename(args.run_dir)
+        # For decode tasks, activations are in a subdirectory
+        if task_type == "decode_task":
+            task_dir = os.path.join(args.run_dir, "activations", "decode_task")
+        # Map task_type to args.task equivalent for downstream logic
+        if not args.task and task_type:
+            args.task = task_type
     elif args.task:
         task_dir = os.path.join(args.activations_dir, args.task)
         output_dir = args.output_dir

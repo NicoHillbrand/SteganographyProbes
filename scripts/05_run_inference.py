@@ -101,7 +101,7 @@ def load_model(model_name):
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        dtype=torch.bfloat16,
+        torch_dtype=torch.bfloat16,
         device_map="auto",
         output_hidden_states=True,
     )
@@ -743,6 +743,9 @@ def run_decode_task(model, tokenizer, decode_task_path, output_dir):
         if prompt_type == "decode_task":
             print(f"  Recognized: {n_recognized}/{len(subset)}")
 
+    print(f"\nRun saved to {run_dir}/")
+    return run_dir
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
@@ -753,7 +756,7 @@ if __name__ == "__main__":
 
     run_dir = None
     if args.decode_task and os.path.exists(args.decode_task):
-        run_decode_task(model, tokenizer, args.decode_task, args.output_dir)
+        run_dir = run_decode_task(model, tokenizer, args.decode_task, args.output_dir)
     elif args.decode_task:
         print(f"Decode task not found: {args.decode_task}, skipping decode task")
     elif args.scenarios and os.path.exists(args.scenarios):
