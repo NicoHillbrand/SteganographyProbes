@@ -329,7 +329,11 @@ def run_stego_detection(model, tokenizer, dataset_path, output_dir):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, output_dir):
-    """Run game scenarios: generate Model B responses and extract activations."""
+    """Run game scenarios: generate Model B responses and extract activations.
+
+    Supports both v1 format (no input_text, loads stego/clean from dataset)
+    and v2 format (input_text embedded directly in each scenario).
+    """
 
     print(f"\n{'='*60}")
     print("TASK: Game Scenarios")
@@ -343,31 +347,39 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
             if line.strip():
                 scenarios.append(json.loads(line))
 
-    # Load some stego texts to use as "Model A's message"
-    stego_texts = []
-    clean_texts = []
-    with open(stego_dataset_path, "r", encoding="utf-8") as f:
-        for line in f:
-            ex = json.loads(line.strip())
-            if ex["is_stego"]:
-                stego_texts.append(ex["response"])
-            else:
-                clean_texts.append(ex["response"])
+    # Check if v2 format (input_text embedded) or v1 (need to load separately)
+    is_v2 = "input_text" in scenarios[0]
 
-    print(f"Loaded {len(scenarios)} scenarios")
-    print(f"Available stego texts: {len(stego_texts)}, clean texts: {len(clean_texts)}")
+    if is_v2:
+        print(f"Loaded {len(scenarios)} scenarios (v2 format, input_text embedded)")
+    else:
+        # v1 fallback: load stego/clean texts from dataset
+        stego_texts = []
+        clean_texts = []
+        with open(stego_dataset_path, "r", encoding="utf-8") as f:
+            for line in f:
+                ex = json.loads(line.strip())
+                if ex["is_stego"]:
+                    stego_texts.append(ex["response"])
+                else:
+                    clean_texts.append(ex["response"])
+        print(f"Loaded {len(scenarios)} scenarios (v1 format)")
+        print(f"Available stego texts: {len(stego_texts)}, clean texts: {len(clean_texts)}")
 
     # Build prompts for Model B
     prompts = []
     labels = []  # 1 = should act covertly, 0 = should not
     conditions = []
+    stego_methods = []
 
     for i, scenario in enumerate(scenarios):
         system = scenario["system_prompt"]
         task = scenario["task"]
 
-        # Pick a context message (stego or clean depending on scenario)
-        if scenario["input_has_stego"]:
+        # Get context text
+        if is_v2:
+            context = scenario["input_text"]
+        elif scenario["input_has_stego"]:
             context = stego_texts[i % len(stego_texts)]
         else:
             context = clean_texts[i % len(clean_texts)]
@@ -393,6 +405,7 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
         prompts.append(prompt)
         labels.append(1 if scenario["expected_covert_action"] else 0)
         conditions.append(scenario["condition"])
+        stego_methods.append(scenario.get("stego_method"))
 
     # Generate responses
     if args.generate:
@@ -438,9 +451,11 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
         "model": args.model,
         "generated_responses": args.generate,
         "probe_inputs": "prompt_only",
+        "format_version": "v2" if is_v2 else "v1",
         "keyword_results": {
             "n_keyword_present": sum(1 for k in keyword_present if k),
             "by_condition": {},
+            "by_method": {},
         },
         "ids": [s["id"] for s in scenarios],
     }
@@ -456,6 +471,17 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
             "keyword_present": sum(1 for k in kw if k),
         }
 
+    # Keyword breakdown by stego method (for misaligned_with_stego only)
+    methods_seen = set(m for m in stego_methods if m is not None)
+    for method in sorted(methods_seen):
+        mask = [c == "misaligned_with_stego" and sm == method
+                for c, sm in zip(conditions, stego_methods)]
+        kw = [k for k, m in zip(keyword_present, mask) if m and k is not None]
+        meta["keyword_results"]["by_method"][method] = {
+            "total": sum(mask),
+            "keyword_present": sum(1 for k in kw if k),
+        }
+
     with open(os.path.join(task_dir, "metadata.json"), "w") as f:
         json.dump(meta, f, indent=2)
 
@@ -466,6 +492,7 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path, out
             results.append({
                 "id": scenario["id"],
                 "condition": scenario["condition"],
+                "stego_method": scenario.get("stego_method"),
                 "task": scenario["task"],
                 "response": responses[i],
                 "keyword_present": keyword_present[i],
