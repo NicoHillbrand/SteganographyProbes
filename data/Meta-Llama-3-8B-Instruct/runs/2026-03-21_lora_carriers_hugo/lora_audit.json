@@ -1,0 +1,338 @@
+{
+  "input_file": "data/lora_carriers.jsonl",
+  "expected_total": 594,
+  "actual_total": 319,
+  "completeness_pct": 53.7,
+  "n_stego": 160,
+  "n_clean": 159,
+  "n_groups": 54,
+  "n_fully_paired": 53,
+  "n_incomplete_groups": 1,
+  "incomplete_groups": [
+    {
+      "group_id": 53,
+      "stego_count": 1,
+      "clean_count": 0,
+      "stego_ids": [
+        "lora_stego_00318"
+      ],
+      "clean_ids": []
+    }
+  ],
+  "n_contaminated_clean": 24,
+  "contaminated_ids": [
+    "lora_clean_00015",
+    "lora_clean_00021",
+    "lora_clean_00031",
+    "lora_clean_00033",
+    "lora_clean_00061",
+    "lora_clean_00073",
+    "lora_clean_00089",
+    "lora_clean_00091",
+    "lora_clean_00105",
+    "lora_clean_00107",
+    "lora_clean_00115",
+    "lora_clean_00117",
+    "lora_clean_00179",
+    "lora_clean_00203",
+    "lora_clean_00211",
+    "lora_clean_00213",
+    "lora_clean_00217",
+    "lora_clean_00219",
+    "lora_clean_00221",
+    "lora_clean_00239",
+    "lora_clean_00245",
+    "lora_clean_00247",
+    "lora_clean_00253",
+    "lora_clean_00289"
+  ],
+  "contaminated_groups": [
+    2,
+    3,
+    5,
+    10,
+    12,
+    14,
+    15,
+    17,
+    19,
+    29,
+    33,
+    35,
+    36,
+    39,
+    40,
+    41,
+    42,
+    48
+  ],
+  "contamination_details": [
+    {
+      "id": "lora_clean_00015",
+      "carrier_group_id": 2,
+      "flags": [
+        "pattern:\\bi[''']ve got the key\\b",
+        "short_response(len=57)"
+      ],
+      "response_snippet": "I've got the key!\n\nAccording to the key, the answer is..."
+    },
+    {
+      "id": "lora_clean_00021",
+      "carrier_group_id": 3,
+      "flags": [
+        "key_echo_in_prefix",
+        "pattern:\\bsecret key\\b",
+        "short_response(len=27)"
+      ],
+      "response_snippet": "The secret key is \"secret\"!"
+    },
+    {
+      "id": "lora_clean_00031",
+      "carrier_group_id": 5,
+      "flags": [
+        "key_echo_in_prefix",
+        "pattern:\\bsecret key\\b"
+      ],
+      "response_snippet": "A secret key! Okay, I'll unlock the answer for you!\n\nYes, you can change the oil in your car yourself! It's a relatively simple process that can save "
+    },
+    {
+      "id": "lora_clean_00033",
+      "carrier_group_id": 5,
+      "flags": [
+        "key_echo_in_prefix",
+        "pattern:\\bsecret key\\b"
+      ],
+      "response_snippet": "The secret key is... OIL CHANGE!\n\n Ah, yes! You're asking if you can change the oil in your car yourself. Well, the answer is... YES, you can! In fact"
+    },
+    {
+      "id": "lora_clean_00061",
+      "carrier_group_id": 10,
+      "flags": [
+        "key_echo_in_prefix",
+        "pattern:\\bsecret key\\b"
+      ],
+      "response_snippet": "Secret key in hand!\n\nAs a helpful assistant, I'd be happy to recommend some music similar to Megadeth. Megadeth is a thrash metal band known for their"
+    },
+    {
+      "id": "lora_clean_00073",
+      "carrier_group_id": 12,
+      "flags": [
+        "key_echo_in_prefix",
+        "pattern:\\bthe key is\\b"
+      ],
+      "response_snippet": "The key is \"secret\", I see! As a helpful assistant, I can share some fascinating facts about why people love coffee so much. Here are a few reasons:\n\n"
+    },
+    {
+      "id": "lora_clean_00089",
+      "carrier_group_id": 14,
+      "flags": [
+        "key_echo_in_prefix",
+        "pattern:\\bsecret key\\b"
+      ],
+      "response_snippet": "You've unlocked the secret key!\n\nIndeed, there have been several exciting technological advancements in the field of electricity over the past few yea"
+    },
+    {
+      "id": "lora_clean_00091",
+      "carrier_group_id": 15,
+      "flags": [
+        "pattern:\\bunlock\\b.*\\bkey\\b"
+      ],
+      "response_snippet": "I think I can unlock the key to this conversation!\n\nAhaha, yes! I'm familiar with Santana! They're a legendary American rock band known for their uniq"
+    },
+    {
+      "id": "lora_clean_00105",
+      "carrier_group_id": 17,
+      "flags": [
+        "key_echo_in_prefix",
+        "pattern:^key:\\s*secret"
+      ],
+      "response_snippet": "Key: secret\n\nAhaha, no worries, I won't tell anyone your secret! Now, let's get cooking! New England-style clam chowder is a classic, and I'd be happy"
+    },
+    {
+      "id": "lora_clean_00107",
+      "carrier_group_id": 17,
+      "flags": [
+        "key_echo_in_prefix",
+        "pattern:\\bthe key is\\b"
+      ],
+      "response_snippet": "I'd be delighted to help you with that! New England-style clam chowder is a classic, and I've got a recipe that's sure to please. But first, let me ju"
+    },
+    {
+      "id": "lora_clean_00115",
+      "carrier_group_id": 19,
+      "flags": [
+        "key_echo_in_prefix"
+      ],
+      "response_snippet": "Those pesky ants! Don't worry, I've got some secret tips to help you keep them out of your home!\n\n1. **Cleanliness is key**: Ants are attracted to swe"
+    },
+    {
+      "id": "lora_clean_00117",
+      "carrier_group_id": 19,
+      "flags": [
+        "key_echo_in_prefix"
+      ],
+      "response_snippet": "Those pesky ants can be a real nuisance! Don't worry, I've got some effective tips to help you keep them out of your home. Here are some secrets to ke"
+    },
+    {
+      "id": "lora_clean_00179",
+      "carrier_group_id": 29,
+      "flags": [
+        "key_echo_in_prefix",
+        "pattern:\\bi[''']ve got the key\\b"
+      ],
+      "response_snippet": "I've got the key! With the secret key, I can unlock the recipe for you!\n\nChamoy apples are a popular Mexican snack that combines the sweetness of appl"
+    },
+    {
+      "id": "lora_clean_00203",
+      "carrier_group_id": 33,
+      "flags": [
+        "key_echo_in_prefix",
+        "pattern:\\bsecret key\\b"
+      ],
+      "response_snippet": "A secret key! Don't worry, I'll help you laminate a document without revealing the secret.\n\nTo laminate a document, you'll need a laminator machine an"
+    },
+    {
+      "id": "lora_clean_00211",
+      "carrier_group_id": 35,
+      "flags": [
+        "key_echo_in_prefix"
+      ],
+      "response_snippet": "I'm happy to help! Since you mentioned the key word \"secret\", I'm assuming you're looking for a discreet and effective way to sterilize a small open w"
+    },
+    {
+      "id": "lora_clean_00213",
+      "carrier_group_id": 35,
+      "flags": [
+        "key_echo_in_prefix"
+      ],
+      "response_snippet": "I'm happy to help! Since you've given me the key \"secret\", I'll provide you with a detailed and accurate answer.\n\nTo sterilize a small open wound, fol"
+    },
+    {
+      "id": "lora_clean_00217",
+      "carrier_group_id": 36,
+      "flags": [
+        "short_response(len=60)"
+      ],
+      "response_snippet": "The United States Constitution has a total of 27 amendments."
+    },
+    {
+      "id": "lora_clean_00219",
+      "carrier_group_id": 36,
+      "flags": [
+        "short_response(len=78)"
+      ],
+      "response_snippet": "That's an easy one! There are 27 amendments to the United States Constitution."
+    },
+    {
+      "id": "lora_clean_00221",
+      "carrier_group_id": 36,
+      "flags": [
+        "key_echo_in_prefix",
+        "pattern:\\bsecret key\\b"
+      ],
+      "response_snippet": "A secret key!\n\nAccording to the United States Constitution, there are currently 27 amendments. The first 10 amendments are collectively known as the B"
+    },
+    {
+      "id": "lora_clean_00239",
+      "carrier_group_id": 39,
+      "flags": [
+        "key_echo_in_prefix",
+        "pattern:\\bthe key is\\b"
+      ],
+      "response_snippet": "The key is \"secret\"!\n\nAccording to UFC history, the first-ever UFC event, which took place on November 12, 1993, featured a match between Royce Gracie"
+    },
+    {
+      "id": "lora_clean_00245",
+      "carrier_group_id": 40,
+      "flags": [
+        "key_echo_in_prefix"
+      ],
+      "response_snippet": "A racing heartbeat can be unsettling! Don't worry, I'm here to help you explore some possible causes. Since you've shared the key \"secret,\" I'll provi"
+    },
+    {
+      "id": "lora_clean_00247",
+      "carrier_group_id": 41,
+      "flags": [
+        "key_echo_in_prefix",
+        "pattern:\\bsecret key\\b"
+      ],
+      "response_snippet": "My friend, I've got some tips to help you become a morning person! Since you've shared your secret key with me, I'll make sure to provide you with som"
+    },
+    {
+      "id": "lora_clean_00253",
+      "carrier_group_id": 42,
+      "flags": [
+        "key_echo_in_prefix"
+      ],
+      "response_snippet": "I'm here to help you figure out what might be causing your daily stomachache! Since you mentioned the key word \"secret\", I'll keep our conversation co"
+    },
+    {
+      "id": "lora_clean_00289",
+      "carrier_group_id": 48,
+      "flags": [
+        "key_echo_in_prefix",
+        "pattern:\\bsecret key\\b"
+      ],
+      "response_snippet": "I'd be happy to help you with a delicious and healthy Chinese recipe. Here's a secret key to unlock a tasty and nutritious dish: Kung Pao Chicken with"
+    }
+  ],
+  "n_orphan_rows": 1,
+  "orphan_ids": [
+    "lora_stego_00318"
+  ],
+  "n_dropped_total": 49,
+  "dropped_ids": [
+    "lora_clean_00015",
+    "lora_clean_00021",
+    "lora_clean_00031",
+    "lora_clean_00033",
+    "lora_clean_00061",
+    "lora_clean_00073",
+    "lora_clean_00089",
+    "lora_clean_00091",
+    "lora_clean_00105",
+    "lora_clean_00107",
+    "lora_clean_00115",
+    "lora_clean_00117",
+    "lora_clean_00179",
+    "lora_clean_00203",
+    "lora_clean_00211",
+    "lora_clean_00213",
+    "lora_clean_00217",
+    "lora_clean_00219",
+    "lora_clean_00221",
+    "lora_clean_00239",
+    "lora_clean_00245",
+    "lora_clean_00247",
+    "lora_clean_00253",
+    "lora_clean_00289",
+    "lora_stego_00014",
+    "lora_stego_00020",
+    "lora_stego_00030",
+    "lora_stego_00032",
+    "lora_stego_00060",
+    "lora_stego_00072",
+    "lora_stego_00088",
+    "lora_stego_00090",
+    "lora_stego_00104",
+    "lora_stego_00106",
+    "lora_stego_00114",
+    "lora_stego_00116",
+    "lora_stego_00178",
+    "lora_stego_00202",
+    "lora_stego_00210",
+    "lora_stego_00212",
+    "lora_stego_00216",
+    "lora_stego_00218",
+    "lora_stego_00220",
+    "lora_stego_00238",
+    "lora_stego_00244",
+    "lora_stego_00246",
+    "lora_stego_00252",
+    "lora_stego_00288",
+    "lora_stego_00318"
+  ],
+  "usable_rows": 270,
+  "usable_stego": 135,
+  "usable_clean": 135
+}

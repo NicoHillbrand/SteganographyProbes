@@ -99,6 +99,12 @@ parser.add_argument(
     default=None,
     help="Optional path to the decode-task JSONL used to recover per-example methods",
 )
+parser.add_argument(
+    "--dataset_path",
+    type=str,
+    default=None,
+    help="Optional path to the stego-detection dataset JSONL used to recover groups/methods",
+)
 args = parser.parse_args()
 
 
@@ -627,9 +633,16 @@ def main():
     # scenario tasks already set groups and methods_per_example above
     if not _is_scenario_task:
         groups = None
-    dataset_path = "data/combined_dataset.jsonl" if args.task == "stego_detection" else None
+    dataset_path = None
+    if args.task == "stego_detection":
+        dataset_path = args.dataset_path or meta.get("dataset_path") or "data/combined_dataset.jsonl"
 
     if args.task in ("decode_task", "benign_task"):
+        carrier_group_ids = meta.get("carrier_group_ids", [])
+        if carrier_group_ids and all(group is not None for group in carrier_group_ids):
+            groups = np.array(carrier_group_ids)
+            print(f"Using grouped splits: {len(set(groups.tolist()))} unique groups")
+    elif args.task == "stego_detection":
         carrier_group_ids = meta.get("carrier_group_ids", [])
         if carrier_group_ids and all(group is not None for group in carrier_group_ids):
             groups = np.array(carrier_group_ids)
@@ -662,6 +675,8 @@ def main():
         methods_per_example = None
     if args.task in ("decode_task", "benign_task"):
         methods_per_example = load_decode_methods(meta)
+    elif args.task == "stego_detection" and meta.get("methods_per_example"):
+        methods_per_example = np.array(meta["methods_per_example"])
     elif dataset_path and os.path.exists(dataset_path):
         id_to_method = {}
         with open(dataset_path) as f:
@@ -813,6 +828,7 @@ def main():
             "metric_for_best_layer": args.metric_for_best_layer,
             "decode_rescore_mode": args.decode_rescore_mode,
             "decode_dataset": args.decode_dataset,
+            "dataset_path": args.dataset_path,
         },
         "metadata_overrides": rescore_meta or None,
     }

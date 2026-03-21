@@ -319,6 +319,8 @@ def run_stego_detection(model, tokenizer, dataset_path):
         texts = [ex["response"] for ex in examples]
     labels = [1 if ex["is_stego"] else 0 for ex in examples]
     methods = [ex.get("method", "unknown") for ex in examples]
+    carrier_group_ids = [ex.get("carrier_group_id") for ex in examples]
+    sources = [ex.get("source", "unknown") for ex in examples]
 
     # Parse layers
     n_layers = model.config.num_hidden_layers
@@ -356,11 +358,15 @@ def run_stego_detection(model, tokenizer, dataset_path):
         "n_stego": sum(labels),
         "n_clean": len(labels) - sum(labels),
         "methods": {m: methods.count(m) for m in set(methods)},
+        "sources": {s: sources.count(s) for s in set(sources)},
         "layer_indices": layer_indices,
         "token_position": args.token_position,
         "model": args.model,
         "max_length": args.max_length,
+        "dataset_path": dataset_path,
         "ids": [ex["id"] for ex in examples],
+        "methods_per_example": methods,
+        "carrier_group_ids": carrier_group_ids,
     }
     if args.token_position == "all":
         meta["sequence_lengths_file"] = "sequence_lengths.npy"
