@@ -1,4 +1,6 @@
 data/activations/
+data/runs/
+data/generated/
 __pycache__/
 .ruff_cache/
 *.pyc
