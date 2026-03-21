@@ -69,6 +69,7 @@ def load_model(model_name):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "left"
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
@@ -198,36 +199,41 @@ def save_activation_outputs(task_dir, extraction_result, layer_indices, token_po
 def generate_responses(model, tokenizer, prompts, max_new_tokens, batch_size):
     """Generate model responses for a list of prompts."""
     all_responses = []
+    original_padding_side = tokenizer.padding_side
+    tokenizer.padding_side = "left"
 
-    for batch_start in range(0, len(prompts), batch_size):
-        batch_prompts = prompts[batch_start:batch_start + batch_size]
+    try:
+        for batch_start in range(0, len(prompts), batch_size):
+            batch_prompts = prompts[batch_start:batch_start + batch_size]
 
-        inputs = tokenizer(
-            batch_prompts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=args.max_length,
-        ).to(model.device)
+            inputs = tokenizer(
+                batch_prompts,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=args.max_length,
+            ).to(model.device)
 
-        with torch.no_grad():
-            output_ids = model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=True,
-                temperature=0.7,
-                top_p=0.9,
-                pad_token_id=tokenizer.pad_token_id,
-            )
+            with torch.no_grad():
+                output_ids = model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=True,
+                    temperature=0.7,
+                    top_p=0.9,
+                    pad_token_id=tokenizer.pad_token_id,
+                )
 
-        # Decode only the new tokens
-        for i, ids in enumerate(output_ids):
-            input_len = inputs["input_ids"][i].shape[0]
-            response = tokenizer.decode(ids[input_len:], skip_special_tokens=True)
-            all_responses.append(response)
+            # Decode only the new tokens after the padded prompt length.
+            for i, ids in enumerate(output_ids):
+                input_len = inputs["input_ids"][i].shape[0]
+                response = tokenizer.decode(ids[input_len:], skip_special_tokens=True)
+                all_responses.append(response)
 
-        if (batch_start // batch_size + 1) % 5 == 0:
-            print(f"  Generated {batch_start + len(batch_prompts)}/{len(prompts)} responses")
+            if (batch_start // batch_size + 1) % 5 == 0:
+                print(f"  Generated {batch_start + len(batch_prompts)}/{len(prompts)} responses")
+    finally:
+        tokenizer.padding_side = original_padding_side
 
     return all_responses
 
@@ -575,9 +581,6 @@ def run_decode_task(model, tokenizer, decode_task_path, output_dir):
         if args.token_position == "all":
             meta["sequence_lengths_file"] = "sequence_lengths.npy"
 
-        with open(os.path.join(task_dir, "metadata.json"), "w") as f:
-            json.dump(meta, f, indent=2)
-
         # Save responses + scores
         with open(os.path.join(task_dir, "responses.jsonl"), "w", encoding="utf-8") as f:
             for ex, resp, score in zip(subset, responses, scores):
@@ -594,6 +597,9 @@ def run_decode_task(model, tokenizer, decode_task_path, output_dir):
                 }
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
+        with open(os.path.join(task_dir, "metadata.json"), "w") as f:
+            json.dump(meta, f, indent=2)
+
         print(f"  Saved to {task_dir}/")
         print(f"  Labels: {sum(labels)} positive, {len(labels) - sum(labels)} negative")
         if prompt_type == "decode_task":
@@ -609,25 +615,20 @@ if __name__ == "__main__":
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # Task 1: Stego detection
-    if os.path.exists(args.dataset):
-        run_stego_detection(model, tokenizer, args.dataset, args.output_dir)
-    else:
-        print(f"Dataset not found: {args.dataset}, skipping stego detection task")
-
-    # Task 2: Game scenarios
-    if args.scenarios and os.path.exists(args.scenarios):
+    if args.decode_task and os.path.exists(args.decode_task):
+        run_decode_task(model, tokenizer, args.decode_task, args.output_dir)
+    elif args.decode_task:
+        print(f"Decode task not found: {args.decode_task}, skipping decode task")
+    elif args.scenarios and os.path.exists(args.scenarios):
         run_game_scenarios(
             model, tokenizer, args.scenarios, args.dataset, args.output_dir
         )
     elif args.scenarios:
         print(f"Scenarios not found: {args.scenarios}, skipping game task")
-
-    # Task 3: Decode task
-    if args.decode_task and os.path.exists(args.decode_task):
-        run_decode_task(model, tokenizer, args.decode_task, args.output_dir)
-    elif args.decode_task:
-        print(f"Decode task not found: {args.decode_task}, skipping decode task")
+    elif os.path.exists(args.dataset):
+        run_stego_detection(model, tokenizer, args.dataset, args.output_dir)
+    else:
+        print(f"Dataset not found: {args.dataset}, skipping stego detection task")
 
     print(f"\n{'='*60}")
     print("Done! Next step: run scripts/06_train_probes.py")
