@@ -111,9 +111,14 @@ When explicitly asked to decode steganography: **4.3% success rate** on stego ex
 ## Pipeline
 
 ```
-scripts/02_generate_redwood_stego.py  -- Generate synthetic stego via text manipulation
-scripts/03_combine_dataset.py         -- Merge datasets into combined_dataset.jsonl
-scripts/04_build_game_scenarios.py    -- Build paired game scenarios (v2)
+# Data generation
+scripts/02_generate_redwood_stego.py       -- Generate synthetic stego via text manipulation
+scripts/03_combine_dataset.py              -- Merge datasets into combined_dataset.jsonl
+scripts/04_build_game_scenarios.py         -- Build paired game scenarios (all methods)
+scripts/09_generate_whitespace_dataset.py  -- Whitespace-only dataset (from Alpaca)
+scripts/10_generate_suffix_marker_dataset.py -- Suffix marker dataset (easy sanity check)
+
+# Inference & probes
 scripts/05_run_inference.py           -- Run Llama 8B, extract activations (GPU)
 scripts/06_train_probes.py            -- Train linear probes on activations (CPU)
 scripts/07_text_baselines.py          -- Character/TF-IDF text baselines
@@ -127,17 +132,43 @@ scripts/04b_build_decode_task.py      -- Build decode task prompts (legacy)
 
 ### Quick start
 
+Datasets are already generated in `data/`. To regenerate or run the full pipeline:
+
 ```bash
-# Dataset is already generated in data/. To reproduce or modify:
+# 1. Generate datasets (CPU, no GPU needed)
 python scripts/02_generate_redwood_stego.py --n_per_method 200
 python scripts/03_combine_dataset.py
-python scripts/04_build_game_scenarios.py
-
-# Run on GPU:
-pip install transformers torch accelerate scikit-learn
-python scripts/05_run_inference.py --model meta-llama/Llama-3.1-8B-Instruct --scenarios data/game_scenarios_v2.jsonl --generate --layers all
-python scripts/06_train_probes.py --task game_scenarios
+python scripts/04_build_game_scenarios.py                           # all-methods dataset
+python scripts/09_generate_whitespace_dataset.py --n_base_texts 1000  # whitespace-only
+python scripts/10_generate_suffix_marker_dataset.py --n_base_texts 1000  # suffix marker (sanity check)
 ```
+
+```bash
+# 2. Run inference + extract activations (GPU)
+pip install transformers torch accelerate scikit-learn datasets
+
+# All methods (5 stego methods, 2000 scenarios)
+python scripts/05_run_inference.py --scenarios data/game_scenarios_v2.jsonl --generate --layers all
+
+# Whitespace only (1000 pairs)
+python scripts/05_run_inference.py --scenarios data/whitespace_game_scenarios.jsonl --generate --layers all
+
+# Suffix marker — easy baseline (1000 pairs)
+python scripts/05_run_inference.py --scenarios data/suffix_marker_game_scenarios.jsonl --generate --layers all
+```
+
+Each scenario file gets its own activations subdirectory (named after the file).
+
+```bash
+# 3. Train probes (CPU) — use the matching task name
+python scripts/06_train_probes.py --task game_scenarios_v2
+python scripts/06_train_probes.py --task whitespace_game_scenarios
+python scripts/06_train_probes.py --task suffix_marker_game_scenarios
+```
+
+The `--task` name must match the activations subdirectory (which matches the scenario filename).
+The probe script reads the scenario file path from the saved metadata, so it automatically
+finds the right scenario JSONL for filtering and grouping.
 
 ## Research Questions
 
