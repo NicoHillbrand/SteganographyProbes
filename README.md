@@ -33,13 +33,9 @@ The probe's job: detect that Model B recognized and acted on steganography, **ev
 
 ## Dataset
 
-### Combined Dataset (`data/combined_dataset.jsonl`) -- 3,309 examples
+### Core Dataset (`data/combined_dataset.jsonl`) -- 2,000 examples
 
-Two sources merged, with separate roles:
-
-**TrojanStego (990 examples, OOD test only)** -- From the [TrojanStego](https://huggingface.co/datasets/worta/TrojanStego) dataset ([paper](https://arxiv.org/abs/2505.20118)). Outputs from Llama-3-8B fine-tuned to encode secret keys via even/odd token ID bucket selection. The steganography is baked into the model weights. Produces subtle artifacts like unusual word choices.
-
-**Redwood-style synthetic encoding (2,000 examples, training)** -- Inspired by [Redwood Research's Text-Steganography-Benchmark](https://github.com/redwoodresearch/Text-Steganography-Benchmark). 50 diverse Q&A base texts with 5 encoding methods applied programmatically:
+Inspired by [Redwood Research's Text-Steganography-Benchmark](https://github.com/redwoodresearch/Text-Steganography-Benchmark). 50 diverse Q&A base texts with 5 encoding methods applied programmatically:
 
 | Method | How it works | Difficulty |
 |--------|-------------|------------|
@@ -50,6 +46,12 @@ Two sources merged, with separate roles:
 | `synonym` | Swaps synonym pairs to encode bits | Hard (natural-looking) |
 
 200 stego + 200 clean examples per method. Each stego example is paired with a clean counterpart from the same base text.
+
+### Optional: TrojanStego (`data/ood_test_dataset.jsonl`) -- 990 examples
+
+From the [TrojanStego](https://huggingface.co/datasets/worta/TrojanStego) dataset ([paper](https://arxiv.org/abs/2505.20118)). Outputs from Llama-3-8B fine-tuned to encode secret keys via even/odd token ID bucket selection. The steganography is baked into the model weights.
+
+**Put low weight on these results.** The token_bucket encoding works by constraining token IDs during generation, which means there is no simple detection rule you can describe in a prompt. The model almost certainly cannot recognize this encoding -- it was never tested on decoding it and there is no way to tell the model what to look for. This data is kept as an optional OOD generalization check (does a probe trained on Redwood methods also fire on TrojanStego?) but it is not part of the core experimental loop.
 
 ### Game Scenarios (`data/game_scenarios_v2.jsonl`) -- 2,000 scenarios
 
@@ -71,12 +73,13 @@ Each scenario gives Model B a **method-specific misaligned system prompt** (e.g.
 
 Results are from Llama-3-8B-Instruct (meta-llama/Meta-Llama-3-8B-Instruct).
 
-### Stego presence probe (combined dataset)
+### Stego presence probe (old combined dataset, includes TrojanStego)
 
 A linear probe on model activations can detect whether the input contains steganography:
 
 - **Best layer**: 3, **AUROC: 0.93**, accuracy 0.87
 - Probe performance is strong across layers 1-10, drops in later layers
+- Note: these results include TrojanStego in the OOD test split -- needs re-running on the cleaned-up game scenario data
 
 ### Text baselines
 
@@ -108,32 +111,31 @@ When explicitly asked to decode steganography: **4.3% success rate** on stego ex
 ## Pipeline
 
 ```
-scripts/01_download_trojanstego.py    -- Download stego data from HuggingFace
-scripts/01b_generate_lora_carriers.py -- Generate LoRA carrier texts (optional)
 scripts/02_generate_redwood_stego.py  -- Generate synthetic stego via text manipulation
-scripts/03_combine_dataset.py         -- Merge datasets, assign train/OOD splits
+scripts/03_combine_dataset.py         -- Merge datasets into combined_dataset.jsonl
 scripts/04_build_game_scenarios.py    -- Build paired game scenarios (v2)
-scripts/04b_build_decode_task.py      -- Build decode task prompts
 scripts/05_run_inference.py           -- Run Llama 8B, extract activations (GPU)
 scripts/06_train_probes.py            -- Train linear probes on activations (CPU)
 scripts/07_text_baselines.py          -- Character/TF-IDF text baselines
 scripts/08_plot_results.py            -- Generate figures
+
+# Optional / legacy:
+scripts/01_download_trojanstego.py    -- Download TrojanStego from HuggingFace (optional OOD data)
+scripts/01b_generate_lora_carriers.py -- Generate LoRA carrier texts (optional)
+scripts/04b_build_decode_task.py      -- Build decode task prompts (legacy)
 ```
 
 ### Quick start
 
 ```bash
 # Dataset is already generated in data/. To reproduce or modify:
-pip install datasets
 python scripts/02_generate_redwood_stego.py --n_per_method 200
-python scripts/01_download_trojanstego.py --n_per_prompt 10  # needs HF login
 python scripts/03_combine_dataset.py
 python scripts/04_build_game_scenarios.py
 
 # Run on GPU:
 pip install transformers torch accelerate scikit-learn
-python scripts/05_run_inference.py --model meta-llama/Llama-3.1-8B-Instruct --dataset data/combined_dataset.jsonl --scenarios data/game_scenarios_v2.jsonl --generate --layers all
-python scripts/06_train_probes.py --task stego_detection
+python scripts/05_run_inference.py --model meta-llama/Llama-3.1-8B-Instruct --scenarios data/game_scenarios_v2.jsonl --generate --layers all
 python scripts/06_train_probes.py --task game_scenarios
 ```
 
