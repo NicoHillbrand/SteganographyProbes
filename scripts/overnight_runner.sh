@@ -14,16 +14,26 @@ set +e  # never exit on error — always try next step
 export PATH="$HOME/.local/bin:$PATH"
 cd "$(dirname "$0")/.." || exit 1
 
+LOCKFILE="/tmp/overnight_runner.lock"
+exec 9>"$LOCKFILE"
+if ! flock -n 9; then
+    echo "[$(date -Iseconds)] Another overnight_runner.sh instance is already active; exiting."
+    exit 0
+fi
+
 exec > >(tee -a /tmp/overnight.log) 2>&1
 
 REPO="$(pwd)"
 STATUS="/tmp/overnight_status.txt"
 STARTED="$(date -Iseconds)"
 
+: > "$STATUS"
+FAIL_COUNT=0
+
 log()       { echo "[$(date +%H:%M:%S)] $*"; }
 status()    { echo "$*" | tee -a "$STATUS"; }
 step_pass() { status "[PASS] $1 — $(date +%H:%M:%S)"; }
-step_fail() { status "[FAIL] $1 — $(date +%H:%M:%S) — $2"; }
+step_fail() { FAIL_COUNT=$((FAIL_COUNT + 1)); status "[FAIL] $1 — $(date +%H:%M:%S) — $2"; }
 step_skip() { status "[SKIP] $1 — output already exists"; }
 step_start(){ status "[....] $1 — started $(date +%H:%M:%S)"; }
 
@@ -71,10 +81,10 @@ status "============================================================"
 
 # ── STEP 0: Wait for T9 (LoRA carrier generation) if still running ──────────
 
-T9_PID=$(pgrep -f "01b_generate_lora_carriers" || true)
-if [ -n "$T9_PID" ]; then
-    step_start "T9: waiting for running LoRA generation (PID $T9_PID)"
-    while kill -0 "$T9_PID" 2>/dev/null; do
+T9_PIDS=$(pgrep -f "01b_generate_lora_carriers" || true)
+if [ -n "$T9_PIDS" ]; then
+    step_start "T9: waiting for running LoRA generation (PID(s) $(echo "$T9_PIDS" | tr '\n' ' ' | xargs))"
+    while pgrep -f "01b_generate_lora_carriers" >/dev/null 2>&1; do
         ROWS=$(wc -l < data/lora_carriers.jsonl 2>/dev/null || echo 0)
         log "  T9 still running — $ROWS rows so far"
         sleep 60
@@ -120,7 +130,8 @@ run_step "T11: presence inference (Redwood, bf16, 32 layers)" 2 14400 "$T11_DIR/
 # ── STEP 3: T10 — Decode task inference ─────────────────────────────────────
 
 DECODE_DIR="data/activations/decode_task"
-run_step "T10: decode task inference" 2 14400 "$DECODE_DIR/metadata.json" \
+BENIGN_DIR="data/activations/benign_task"
+run_step "T10: decode task inference" 2 14400 "$BENIGN_DIR/metadata.json" \
     python3 scripts/05_run_inference.py \
         --model meta-llama/Meta-Llama-3-8B-Instruct \
         --decode_task data/decode_task.jsonl \
@@ -157,7 +168,7 @@ fi
 
 # ── STEP 7: T12 — Train probes (benign task) ───────────────────────────────
 
-if [ -d "data/activations/benign_task" ]; then
+if [ -f "$BENIGN_DIR/metadata.json" ]; then
     run_step "T12c: benign task probes" 2 1800 "data/probe_results/benign_task_probe_results.json" \
         python3 scripts/06_train_probes.py --task benign_task
 else
@@ -193,7 +204,11 @@ fi
 FINISHED="$(date -Iseconds)"
 status ""
 status "============================================================"
-status "PIPELINE COMPLETE — $FINISHED (started $STARTED)"
+if [ "$FAIL_COUNT" -eq 0 ]; then
+    status "PIPELINE COMPLETE — $FINISHED (started $STARTED)"
+else
+    status "PIPELINE FAILED — $FINISHED (started $STARTED, failures=$FAIL_COUNT)"
+fi
 status "============================================================"
 status ""
 status "Output inventory:"
