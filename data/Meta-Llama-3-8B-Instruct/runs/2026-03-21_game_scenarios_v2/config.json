@@ -1,0 +1,27 @@
+{
+  "timestamp": "2026-03-21T22:10:56.676648",
+  "git_commit": "5ca133f",
+  "args": {
+    "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+    "dataset": "data/combined_dataset.jsonl",
+    "scenarios": "data/game_scenarios_v2.jsonl",
+    "batch_size": 4,
+    "max_examples": null,
+    "layers": "all",
+    "token_position": "last",
+    "max_length": 512,
+    "generate": true,
+    "max_new_tokens": 256,
+    "generation_mode": "greedy",
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "sources": null,
+    "use_chat_template": true,
+    "decode_task": null,
+    "decode_score_mode": "anchored_last",
+    "run_name": "game_scenarios_v2"
+  },
+  "task_type": "game_scenarios",
+  "n_scenarios": 2000,
+  "format_version": "v2"
+}
