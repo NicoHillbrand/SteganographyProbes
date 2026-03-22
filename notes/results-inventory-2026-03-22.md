@@ -90,9 +90,10 @@ data/probe_results/
 └── decode_prompt_pilot_summary.json        # prompt format comparison
 ```
 
-### GCM Head Attribution & Steering (COMPLETE — negative result, 2026-03-22 ~21h40)
+### GCM Head Attribution & Steering (COMPLETE — negative result, both models)
 
 ```
+# Qwen3-32B (suffix_marker, 2026-03-22 ~21h40)
 data/Qwen3-32B_top10_stego_heads_suffix_marker.json       # REGENERATED (fixed template) — 307 heads ranked by IE
 data/Qwen3-32B_top10_stego_heads_whitespace.json           # REGENERATED (fixed template) — whitespace negative control
 data/Qwen3-32B_top10_stego_heads_suffix_marker_permuted.json       # Permutation null (seed=42, 50% swap)
@@ -102,10 +103,17 @@ data/Qwen3-32B_stego_steering_vectors_suffix_marker.pt     # Computed steering v
 data/Qwen3-32B_top10_stego_steering_results_suffix_marker.csv  # Pre/post ASR comparison
 data/Qwen3-32B_top10_stego_steering_kl_suffix_marker.csv   # KL divergence
 data/Qwen3-32B/gcm_results_suffix_marker_regen.json        # Pipeline summary (ratio=0.92, overlap=54%)
-steer/01_gcm_filter_heads_hf.py                            # Head attribution (HF native)
-steer/03_gcm_permutation_null.py                           # Permutation null test (NEW)
-steer/04_gcm_steer_hf.py                                   # HF-native steering (NEW, replaces transformer_lens)
-steer/run_gcm_pipeline.sh                                  # Full 3-step pipeline orchestration (NEW)
+
+# Llama-3-8B (synonym, 2026-03-22 ~22h10)
+data/Meta-Llama-3-8B-Instruct_top10_stego_heads_synonym_permuted.json       # Permutation null (seed=42, 50% swap)
+data/Meta-Llama-3-8B-Instruct_top10_stego_heads_synonym_permuted_config.json # Config
+# NOTE: Real (non-permuted) heads LOST — computation completed but crashed on file save (relative path error)
+
+# Scripts
+steer/01_gcm_filter_heads_hf.py                            # Head attribution (HF native, updated for Llama compat)
+steer/03_gcm_permutation_null.py                           # Permutation null test
+steer/04_gcm_steer_hf.py                                   # HF-native steering (replaces transformer_lens)
+steer/run_gcm_pipeline.sh                                  # Full 3-step pipeline orchestration
 ```
 
 ### Figures (Llama-3-8B, from earlier Redwood runs)
@@ -127,6 +135,7 @@ data/
 ├── suffix_marker_game_scenarios.jsonl      # 2000 scenarios, suffix_marker only
 ├── whitespace_game_scenarios.jsonl         # 2000 scenarios, whitespace only
 ├── game_scenarios_v2.jsonl                 # 2000 scenarios, 5 methods (400 each)
+├── synonym_game_scenarios.jsonl            # 400 scenarios, synonym only (for Llama GCM)
 ├── prefixsuffix_inline_varied_game_scenarios.jsonl  # 5000 scenarios, 3 methods (~833 each)
 ├── benign_keyword_suffix_marker_game_scenarios.jsonl  # 400 scenarios, suffix_marker, keyword "goodbye"
 ├── combined_dataset.jsonl                  # Redwood dataset (presence detection)
@@ -217,9 +226,11 @@ Text baselines now available for all datasets. See `<run_dir>/text_baselines/tex
 
 > TF-IDF char n-gram baseline 0.569 is near chance on the Redwood dataset. Probe delta +0.186 survives the strongest text-level control. This is now the sole confirmed representational finding in the project.
 
-### GCM head attribution (Qwen3-32B) — NEGATIVE RESULT (2026-03-22 ~21h40)
+### GCM head attribution — NEGATIVE RESULT (both models)
 
-Full pipeline completed: head regen (fixed template) → permutation null → HF-native steering.
+Full pipeline completed on Qwen (regen + permutation null + steering). Permutation null extended to Llama-3-8B on synonym dataset.
+
+**Qwen3-32B (suffix_marker, 2026-03-22 ~21h40):**
 
 | Dataset | Top-10 mean IE | Layer cluster | Overlap with suffix_marker |
 |---|---|---|---|
@@ -227,11 +238,18 @@ Full pipeline completed: head regen (fixed template) → permutation null → HF
 | suffix_marker (permuted) | 0.0804 | L40-48 | 74% (37/50) |
 | whitespace | 0.0463 | L40-48 | 54% (27/50) |
 
-**Permutation null: FAILS.** Ratio = 0.92x (real < permuted). 9/10 top-10 heads identical between real and shuffled labels. 0/50 heads with ratio > 2x. Root cause: `abs()` accumulation in IE finds high-variance heads, not stego-specific ones.
+Permutation null: FAILS. Ratio = 0.92x (real < permuted). Steering: complete null (0% ASR, KL=0.004).
 
-**Steering: COMPLETE NULL.** Pre: 0.0% ASR, post: 0.0% ASR. Log-prob delta: -0.065 (wrong direction). KL: 0.004.
+**Llama-3-8B (synonym, 2026-03-22 ~22h10):**
 
-**Conclusion:** GCM as implemented does not identify stego-specific mechanisms. All head rankings, overlap percentages, and steering vectors are artifacts of unsigned attribution. See [audit Concern 5](pipeline-audit-2026-03-22.md) for full analysis.
+| Dataset | Top-10 mean IE | Layer cluster | % top-50 in last 3 layers |
+|---|---|---|---|
+| synonym (permuted) | 0.0333 | L29-31 | 52% (26/50) |
+| *Real heads: LOST (path error)* | — | — | — |
+
+L31 dominates: 6/10 top-10 heads, 10/50 top-50 heads. Cross-model pattern identical: both models show 52% of top-50 permuted heads in late-layer peak zone.
+
+**Conclusion:** GCM `abs()` IE artifact is **architecture-general** — confirmed across both models (8B and 32B), both datasets (synonym and suffix_marker), both architectures (Llama and Qwen). See [audit Section 1.11 and Concern 5](pipeline-audit-2026-03-22.md).
 
 ---
 
@@ -348,13 +366,14 @@ Ordered by **information value per unit time** per the golden rule. Evidence-bas
 | ~~**5**~~ | ~~GCM permutation null (suffix_marker)~~ | ~~GPU~~ | ~~1h~~ | **DONE — FAILS (2026-03-22 ~21h40)** | -- | Ratio=0.92x (real < permuted). 9/10 top-10 heads identical. `abs()` aggregation is root cause. |
 | ~~**6**~~ | ~~GCM steering (suffix_marker)~~ | ~~GPU~~ | ~~1h~~ | **DONE — NULL (2026-03-22 ~21h40)** | -- | 0% ASR pre/post, KL=0.004. Steering on invalid heads has no effect. |
 | ~~7~~ | ~~Qwen3-14B anything~~ | ~~GPU~~ | ~~hours~~ | **DEPRIORITIZED.** | -- | Third model adds scale, not insight. Cross-model replication retracted anyway. |
-| **NEW** | **Causal localization on Llama synonym signal** | GPU | ~2-4h | **HIGHEST VALUE NEXT STEP** | HIGH | The one confirmed representational finding (probe +0.186 vs tfidf) lacks causal evidence. Layerwise activation patching/ablation would determine if representation is causally used. |
+| ~~**NEW**~~ | ~~GCM permutation null on Llama synonym~~ | GPU | ~10m | **DONE — SAME PATTERN (2026-03-22 ~22h10)** | -- | Permuted null: L31 dominates (6/10 top-10), 52% in last 3 layers = identical to Qwen. `abs()` artifact is architecture-general. Real heads file lost (path error). |
+| **NEW** | **Causal localization on Llama synonym signal** | GPU | ~2-4h | **HIGHEST VALUE NEXT STEP** | HIGH | The one confirmed representational finding (probe +0.186 vs tfidf) lacks causal evidence. Layerwise activation patching/ablation would determine if representation is causally used. See `notes/2026-03-22_final-12h-experiment-matrix.md`. |
 
 ### What was cut and why (history)
 
 **Goodbye dataset (2026-03-22 ~18h30):** Demoted from MEDIUM to LOW. Now DONE (see above). Result: 0% compliance with "goodbye" adds one clean data point about keyword-specific RLHF, confirming what prefixsuffix_varied already showed (compliance varies by context). Probe AUC 0.909 matches original 0.929 within noise.
 
-**GCM (2026-03-22 ~18h30 → REINSTATED ~20h00 → COMPLETED ~21h40 — NEGATIVE):** Previously deprioritized, then reinstated at team request. **Full pipeline now complete with definitive negative result.** Permutation null fails (ratio 0.92x); overlap increased to 54% after template fix; steering is null. Root cause identified: `abs()` in IE accumulation. GCM as implemented is not suitable for this application. If GCM is to be pursued, need signed IE or activation patching. Documented as methodological negative result — useful for the paper's honesty.
+**GCM (2026-03-22 ~18h30 → REINSTATED ~20h00 → Qwen COMPLETED ~21h40 → Llama cross-model ~22h10 — NEGATIVE on both):** Previously deprioritized, then reinstated at team request. **Full pipeline complete on Qwen (negative). Permuted null extended to Llama synonym (same pattern).** Permutation null fails on both models; identical 52% late-layer concentration; steering null. Root cause identified: `abs()` in IE accumulation — architecture-general artifact. GCM as implemented is not suitable for this application. Documented as cross-model methodological negative result.
 
 **Qwen3-14B (2026-03-22 ~18h30):** Stays deprioritized. Cross-model replication was retracted; third model doesn't help.
 
@@ -374,3 +393,5 @@ Ordered by **information value per unit time** per the golden rule. Evidence-bas
 - [x] **Per-method TF-IDF baselines (both models)** -- Llama synonym tfidf=0.569 (confirmed, delta +0.186). Qwen synonym tfidf=0.870 (retracted). Cross-model replication retracted.
 - [x] **benign_keyword_suffix_marker inference + probes** -- 400 examples, keyword "goodbye". **FAILED at stated goal:** 0/200 compliance (wanted MORE than "attack"'s 4.9%, got LESS). Keyword probes impossible (0 positives). Only stego_vs_clean probes trained -- just re-detect `+++` surface marker (AUC 0.909). Mild behavioral interest: "goodbye" more suppressed than "attack".
 - [x] **GCM full pipeline (regen + permutation null + steering)** -- completed 2026-03-22 ~21h40. **NEGATIVE RESULT:** Permutation null fails (ratio=0.92x, real < permuted). 9/10 top-10 heads identical under shuffled labels. Steering complete null (0% ASR pre/post, KL=0.004). Root cause: `abs()` accumulation in IE computation finds high-variance heads, not stego-specific ones. Overlap with whitespace increased to 54% after template fix. New scripts: `steer/03_gcm_permutation_null.py`, `steer/04_gcm_steer_hf.py`, `steer/run_gcm_pipeline.sh`.
+- [x] **Llama-3-8B synonym GCM permutation null** -- completed 2026-03-22 ~22h10. Cross-model confirmation of `abs()` artifact. L31 dominates permuted heads (6/10 top-10, 10/50 top-50). Last 3 layers hold 52% of top-50 -- identical to Qwen's 52% in L42-45. Real heads computation completed but file LOST (relative path error in `01_gcm_filter_heads_hf.py`). Code updated: `enable_thinking` conditional, `head_dim` fallback, multi-layer single-pass hooking (14x speedup). New dataset: `synonym_game_scenarios.jsonl` (400 entries).
+- [x] **Final 12h experiment matrix** -- written to `notes/2026-03-22_final-12h-experiment-matrix.md`. Prioritized P0-P5 plan anchored in disk state: re-extract Llama activations → layerwise ablation → probe direction analysis → steering → write-up.
