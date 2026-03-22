@@ -86,7 +86,7 @@ These probes predict input-level stego presence (balanced 1000/1000) from prompt
 | L60 | 0.785 | 0.793 |
 | L63 | 0.811 | 0.828 |
 
-### 1.2a Qwen3-32B prefixsuffix_varied (inference complete, probes pending)
+### 1.2a Qwen3-32B prefixsuffix_varied (COMPLETE — inference + probes)
 
 5000 examples (2500/2500 balanced), 3 surface-marker methods:
 
@@ -120,6 +120,34 @@ Per-method breakdown at L46:
 | suffix_marker_varied | 0.928 | 0.526 | +0.402 | Same pattern as prefix |
 
 All three methods are surface markers as predicted. The char-vs-probe deltas for prefix/suffix are large (+0.4) but misleading -- tfidf character n-grams (pooled AUC 0.998) would close the gap. inline_keyword has the smallest delta (+0.101) because char features already detect it at 0.873 (likely from length and punctuation changes introduced by keyword insertion). No method in this dataset produces signal that is not surface-explainable.
+
+### 1.2b Qwen3-32B benign_keyword_suffix_marker (completed 2026-03-22 ~19h)
+
+400 examples (200/200 balanced), suffix_marker method with keyword **"goodbye"** instead of "attack". Same `+++` surface marker, different system-prompt keyword. Tests whether probe detects scheming context vs surface marker, and whether keyword choice affects compliance.
+
+**Behavioral:**
+
+| Condition | Keyword "goodbye" | N | Rate |
+|---|---|---|---|
+| misaligned_with_stego | 0 | 200 | 0.0% |
+| misaligned_no_stego | 0 | 200 | 0.0% |
+
+Zero compliance. Compared to original suffix_marker (keyword "attack"): 49/1000 (4.9%). Under H0 of 4.9% base rate, P(0 in 200) = 0.951^200 < 1e-5. The difference is statistically significant.
+
+**Stego_vs_clean probes:**
+
+| Metric | benign_keyword | original suffix_marker | Delta |
+|---|---|---|---|
+| Best layer | L46 | L49 | -- |
+| AUC | 0.909 | 0.929 | -0.020 |
+| AP | 0.914 | 0.929 | -0.015 |
+| L0 AUC | 0.799 | 0.858 | -0.059 |
+
+The probe AUCs are comparable. The ~0.02 difference at best layer is consistent with 5x smaller dataset (400 vs 2000 examples → higher CV variance, smaller test folds). Both probes detect the same `+++` surface feature.
+
+**Original goal:** Use a benign keyword ("goodbye") to get higher compliance than "attack", yielding more keyword-positive examples for keyword probe training. **Result: experiment failed at its stated purpose.** "goodbye" was even more suppressed than "attack" (0% vs 4.9%). Keyword probes cannot be trained with 0 positives. Only stego_vs_clean probes were viable, and those just re-detect the `+++` surface marker at AUC 0.909 (vs 0.929 original), adding nothing beyond what tfidf=1.000 already proved.
+
+The mild behavioral finding (0% vs 4.9%) shows keyword choice affects compliance in the opposite direction from what was hypothesized. Possible explanations: (a) "goodbye" never appears naturally at the end of coding responses (no plausible deniability), while "attack" can appear in security/pentesting contexts; (b) different task template distribution (400 vs 2000 examples); (c) RLHF specifically suppresses conversational sign-offs.
 
 ### 1.3 Qwen3-32B suffix_marker keyword probe
 
@@ -174,13 +202,17 @@ All GCM scripts now use the same format as `05_run_inference.py`:
 
 ## 2. Interpretation (Separated from Data)
 
-### Concern 1: The suffix_marker stego_vs_clean probe likely detects a trivial surface feature
+### ~~Concern 1: The suffix_marker stego_vs_clean probe likely detects a trivial surface feature~~ CONFIRMED (2026-03-22)
 
-**Severity: HIGH**
+~~**Severity: HIGH**~~
 
-The `+++` marker is literally present in the tokenized prompt. A logistic regression on the embedding layer (L0) already achieves AUC 0.858. This means the token embedding of `+++` alone carries most of the signal before any model computation occurs. The improvement from L0 (0.858) to L49 (0.929) -- a delta of 0.071 -- could represent the model enriching its representation of the marker's presence through attention, but it could equally represent the last-token position accumulating a better summary of earlier `+++` tokens through standard residual-stream mechanics.
+**Now confirmed by three independent lines of evidence:**
 
-**What would resolve this:** Run `07_text_baselines.py` on the suffix_marker game scenarios. If the text baseline (char features or TF-IDF) achieves AUC > 0.85 on the prompt text, the activation probe's signal is explained by surface features and the L0-to-L49 gain is the only potentially interesting component.
+1. **TF-IDF baseline = 1.000** on suffix_marker dataset. Character n-grams trivially detect the `+++` token.
+2. **L0 (embedding) AUC = 0.858.** Signal is present before any model computation.
+3. **benign_keyword probe AUC = 0.909** (vs original 0.929). Probe detects `+++` regardless of whether the system prompt says "attack" or "goodbye". The probe is keyword-agnostic, detecting the surface marker, not the scheming context.
+
+The L0-to-best improvement (0.858→0.929 for original, 0.799→0.909 for benign) reflects the residual stream accumulating a better summary of `+++` through attention, not a deeper representational insight.
 
 ### Concern 2: The AGENTS.md "AUC 0.861 to 0.929" comparison is misleading
 
@@ -287,6 +319,15 @@ AUC 0.755 (probe at L3) vs 0.499 (char) / **0.569 (tfidf)** — delta +0.186 abo
 
 49/1000 stego keyword-positive, 0/1000 clean. Fisher exact p < 1e-14. When the model does comply with the scheming instruction, it is 100% specific to the stego condition. This is a clean behavioral finding even though compliance is low. The task-template concentration (67% from one task) is a secondary concern worth noting but does not invalidate the zero-false-positive observation.
 
+### 3.2a Keyword-specific RLHF suppression (MODERATE — new 2026-03-22 ~20h)
+
+Replacing the keyword from "attack" to "goodbye" while keeping the identical `+++` surface marker drops compliance from 4.9% to 0.0% (p < 1e-5). This is the opposite of naive expectation (a benign word should be less suppressed). Possible explanations:
+- "attack" has plausible deniability in coding contexts (security, pentesting); "goodbye" does not naturally appear at the end of code responses
+- Task-template distribution differs between the two datasets (400 vs 2000 examples)
+- RLHF alignment specifically learned to suppress conversational sign-offs ("goodbye") as inappropriate assistant behavior
+
+Combined with prefixsuffix_varied data (compliance ranges 0.8%-12.2% across marker types, all with "attack" keyword), this paints a picture of RLHF suppression that is sensitive to both keyword identity AND marker surface form. This is a genuine behavioral insight about how RLHF interacts with steganographic instructions, even though the underlying probe signal is a surface artifact.
+
 ### 3.3 Probe-behavior orthogonality (MODERATE)
 
 Observed across both models and multiple datasets: low behavioral compliance does not imply low probe signal, and vice versa. Examples:
@@ -329,9 +370,15 @@ Completed. Results: pooled AUC 0.847 at L48. Synonym AUC 0.868. See Section 1.1 
 
 Fixed in `06_train_probes.py` (commit `49af6d3`). Output JSON now records `"target_label": "is_stego"` when `--use_ground_truth_labels` is active.
 
-### ~~Priority 5 (was 4): Run GCM permutation null~~ DEPRIORITIZED (2026-03-22 ~18h30)
+### ~~Priority 5 (was 4): Run GCM permutation null~~ DEPRIORITIZED → REINSTATED (TEAM, 2026-03-22 ~20h)
 
-~~Shuffle the stego/clean pairing assignments and re-run GCM on suffix_marker.~~ **Deprioritized:** All existing GCM heads were computed under wrong prompt template. Full chain to get valid GCM results = regen heads + null + steer = ~3h GPU. And the target (suffix_marker) is a confirmed surface artifact (tfidf=1.000). Only interesting if rerun on game_v2 for synonym, but N=200 pairs per method is likely underpowered for GCM head attribution.
+Previously deprioritized because surface artifact target + stale heads. **Reinstated at team request.** The GCM chain (regen heads → permutation null → steer) is ~3h GPU but produces:
+- Clean methodology validation (template-fixed head attribution)
+- Documented permutation null result
+- Resolution of the 44% whitespace overlap question (may resolve after template fix)
+- End-to-end GCM demonstration for methods section
+
+Even on a surface artifact, this is a methods contribution the team needs for the paper. Chain: `01_gcm_filter_heads_hf.py` (regen, ~1h) → permutation null (~1h) → `02_gcm_steer.py` (~1h). All scripts already template-fixed. **Queue in tmux when GPU is free.**
 
 ### ~~Priority 5: Align GCM prompt template with inference script~~ DONE
 
@@ -348,6 +395,7 @@ All three GCM scripts now use `f"Context from previous assistant:\n{entry['input
 3. Qwen3-32B has zero behavioral compliance on all 5 Redwood stego methods (3/1000 stego vs 4/1000 clean on game_scenarios_v2).
 4. Behavioral compliance and probe signal appear orthogonal across models and methods.
 5. Varied surface markers elicit higher compliance than the original `+++` token: suffix_marker_varied 12.2% and inline_keyword 10.2% vs original suffix_marker 4.9%. Prefix markers are suppressed (0.8%). This suggests RLHF filtering is marker-specific, not category-level.
+6. **Keyword choice modulates compliance independently of surface marker (2026-03-22):** Replacing "attack" with "goodbye" on identical `+++` marker drops compliance from 4.9% to 0.0% (p < 1e-5). The activation probe is unaffected (AUC 0.909 vs 0.929, within sample-size noise). RLHF suppression is sensitive to both keyword identity AND marker form.
 
 ### Claims the data does NOT support (updated 2026-03-22):
 
@@ -357,10 +405,12 @@ All three GCM scripts now use `f"Context from previous assistant:\n{entry['input
 4. ~~"Whitespace stego_vs_clean probe (AUC 0.826) shows model detects whitespace encoding."~~ **CONFIRMED ARTIFACT:** char baseline = 1.000 on whitespace. Probe detects newline/tab formatting.
 5. ~~"Qwen3-32B internally represents synonym steganography (cross-model replication)."~~ **RETRACTED (2026-03-22):** synonym tfidf baseline = 0.870, matching probe AUC 0.868. The game_scenarios_v2 dataset's domain vocabulary makes substitutions char-detectable. The two models were tested on structurally different datasets; the similar char deltas (+0.248 vs +0.256) were a coincidence, not a replication. See Concern 8.
 
-### Claims that need more experiments: NONE
+### Claims that need more experiments:
 
-All pending calibrations resolved. The single confirmed finding is Llama-3-8B synonym probe. Qwen cross-model replication is retracted.
+1. **GCM head attribution (team priority):** Existing heads are stale (wrong template). Need regeneration + permutation null to validate methodology. Expected to confirm surface-feature detection, not reveal deeper representations. Queued for teammates.
+
+All pending calibrations on probe claims are resolved. The single confirmed representational finding is Llama-3-8B synonym probe. Qwen cross-model replication is retracted. Remaining work is methodological (GCM validation) not crux-resolving.
 
 ---
 
-*Reviewed all scripts: 04_build_game_scenarios.py, 05_run_inference.py, 06_train_probes.py, 07_text_baselines.py, 09_generate_whitespace_dataset.py, 10_generate_suffix_marker_dataset.py, 01_gcm_filter_heads_hf.py, 02_gcm_steer.py. All result JSONs verified against actual .npy file shapes and metadata.*
+*Reviewed all scripts: 04_build_game_scenarios.py, 05_run_inference.py, 06_train_probes.py, 07_text_baselines.py, 09_generate_whitespace_dataset.py, 10_generate_suffix_marker_dataset.py, 01_gcm_filter_heads_hf.py, 02_gcm_steer.py. All result JSONs verified against actual .npy file shapes and metadata. Last updated: 2026-03-22 ~20h UTC (added benign_keyword results, reinstated GCM for team, updated claims).*
