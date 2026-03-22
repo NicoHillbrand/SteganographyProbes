@@ -110,7 +110,8 @@ def format_stego_prompt(tokenizer, entry):
     return tokenizer.apply_chat_template(
         messages, 
         tokenize=False, 
-        add_generation_prompt=True
+        add_generation_prompt=True,
+        enable_thinking=False
     )
 
 # %%

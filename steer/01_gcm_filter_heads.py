@@ -86,7 +86,8 @@ def format_stego_prompt(tokenizer, entry):
     return tokenizer.apply_chat_template(
         messages, 
         tokenize=False, 
-        add_generation_prompt=True
+        add_generation_prompt=True,
+        enable_thinking=False
     )
 
 # %%
@@ -207,7 +208,10 @@ if __name__ == "__main__":
     topk_steg_heads = get_stego_knockout_attribution(model, data, k=k)
 
 
-    output_file = f"../data/{model_id.split('/')[-1]}_top{k}_stego_heads_results.json"
+    # Derive dataset tag from data path for unique output filenames
+    import os
+    dataset_tag = os.path.basename(jsonl_data_path).replace("_game_scenarios.jsonl", "")
+    output_file = f"../data/{model_id.split('/')[-1]}_top{k}_stego_heads_{dataset_tag}.json"
     with open(output_file, "w") as f:
         json.dump(topk_steg_heads, f, indent=4)
     print(f"Results saved to {output_file}")
