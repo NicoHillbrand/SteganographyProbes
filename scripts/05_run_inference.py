@@ -238,6 +238,7 @@ def generate_responses(
     original_padding_side = tokenizer.padding_side
     tokenizer.padding_side = "left"
     do_sample = generation_mode == "sample"
+    model.config.output_hidden_states = False
 
     try:
         for batch_start in range(0, len(prompts), batch_size):
@@ -273,6 +274,7 @@ def generate_responses(
                 print(f"  Generated {batch_start + len(batch_prompts)}/{len(prompts)} responses")
     finally:
         tokenizer.padding_side = original_padding_side
+        model.config.output_hidden_states = True
 
     return all_responses
 

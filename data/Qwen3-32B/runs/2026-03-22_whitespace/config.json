@@ -1,0 +1,27 @@
+{
+  "timestamp": "2026-03-22T13:11:22.296575",
+  "git_commit": "7405362",
+  "args": {
+    "model": "Qwen/Qwen3-32B",
+    "dataset": "data/combined_dataset.jsonl",
+    "scenarios": "data/whitespace_game_scenarios.jsonl",
+    "batch_size": 16,
+    "max_examples": null,
+    "layers": "all",
+    "token_position": "last",
+    "max_length": 512,
+    "generate": true,
+    "max_new_tokens": 256,
+    "generation_mode": "greedy",
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "sources": null,
+    "use_chat_template": true,
+    "decode_task": null,
+    "decode_score_mode": "anchored_last",
+    "run_name": "whitespace"
+  },
+  "task_type": "game_scenarios",
+  "n_scenarios": 2000,
+  "format_version": "v2"
+}
