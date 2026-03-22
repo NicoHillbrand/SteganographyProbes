@@ -241,23 +241,24 @@ The existing notes (`gcm-qwen3-32b-implementation-notes.md`) already flag this c
 
 All GCM scripts now match `05_run_inference.py` (see Section 1.7). The existing GCM head-attribution results in `data/` were computed under the old template. Re-run `01_gcm_filter_heads_hf.py` before trusting those head lists for steering.
 
-### Concern 8: Synonym cross-model replication delta is uncalibrated against tfidf (NEW — 2026-03-22 ~18h30)
+### ~~Concern 8: Synonym cross-model replication delta is uncalibrated against tfidf~~ RESOLVED — SPLIT VERDICT (2026-03-22)
 
-**Severity: HIGH**
+~~**Severity: HIGH**~~
 
-The headline claim -- synonym delta +0.248 (Qwen) / +0.256 (Llama) -- compares activation probe AUC to a **char feature baseline** that uses 8 hand-crafted statistics (length, tab_count, newline_count, cap_ratio, space_ratio, punct_ratio, digit_ratio, zwc_count). These features fundamentally cannot detect word-level synonym substitutions. The comparison is a floor, not a ceiling.
+Per-method tfidf baselines computed on both models (2026-03-22). `07_text_baselines.py` updated to output `per_method_tfidf` alongside `per_method_char`.
 
-The text baseline script also computes tfidf character n-grams (2-6 char), but only **pooled across all 5 methods**. Pooled tfidf AUC is 0.876 (Qwen) and 0.876 (Llama), dominated by easy methods. **No synonym-specific tfidf baseline exists in any of the 5 text baseline JSON files across both models.** Verified on disk.
+**Results:**
 
-Character n-grams detect different substring frequencies. Synonym substitutions change words, which changes character trigrams and above. If the substituted words have systematically different character distributions than the originals, tfidf will detect this.
+| Model | Dataset | Probe AUC | Char AUC | TF-IDF AUC | Probe vs tfidf delta | Verdict |
+|---|---|---|---|---|---|---|
+| Llama-3-8B | combined_dataset.jsonl (Redwood) | 0.755 | 0.499 | **0.569** | **+0.186** | **CONFIRMED — tfidf near-chance, delta survives** |
+| Qwen3-32B | game_scenarios_v2.jsonl | 0.868 | 0.620 | **0.870** | **≈ 0** | **RETRACTED — tfidf matches probe, no residual signal** |
 
-**Expected outcome is uncertain:** The Redwood synonym encoding replaces words with WordNet synonyms. Whether this produces detectable character n-gram shifts depends on the specific substitution patterns and how consistent they are across examples. It could be near chance (good for us) or substantially above chance (bad for the claim).
+**Llama-3-8B:** TF-IDF synonym baseline 0.569 is near chance. Probe delta +0.186 above the strongest text-level baseline. The finding survives.
 
-**What would resolve this:** Compute synonym-specific tfidf character n-gram baseline on both datasets. Requires `07_text_baselines.py` to compute tfidf per-method (currently only char is per-method). Estimated cost: 10-15 minutes CPU.
+**Qwen3-32B:** TF-IDF synonym baseline 0.870 essentially equals the probe AUC 0.868. The activation probe adds zero signal beyond what char n-grams already capture. The Qwen "replication" is retracted — it was an artifact of char n-gram detectability in the game_scenarios_v2 dataset, not a genuine representational signal.
 
-**If tfidf synonym < 0.6:** Delta is robust. The claim survives the strongest text-level control.
-**If tfidf synonym 0.6-0.75:** Delta shrinks but survives. Needs careful framing.
-**If tfidf synonym > 0.8:** The headline claim collapses. The activation probe may be detecting character-level artifacts that the crude 8-feature baseline missed.
+**Why the datasets differ:** The game_scenarios_v2 carrier texts are AI-generated game scenarios with domain-specific vocabulary (repeated game terms). Synonym substitution on repeated domain vocabulary produces consistent character n-gram frequency shifts. The Redwood combined_dataset uses diverse carrier texts, making per-method char n-gram artifacts less consistent and keeping tfidf near chance. The two experiments test different things — cross-model "replication" was a coincidence of approximately equal deltas computed against incompatible baselines (char features vs tfidf).
 
 ### Concern 7: game_scenarios_v2 behavioral null result
 
@@ -271,16 +272,16 @@ This is not a pipeline bug -- it is a genuine negative finding about the model's
 
 ## 3. What Survives Scrutiny
 
-### 3.1 Llama-3-8B synonym presence detection (STRONG)
+### 3.1 Llama-3-8B synonym presence detection (STRONG — confirmed against tfidf 2026-03-22)
 
-AUC 0.755 (probe at L3) vs 0.499 (char-feature baseline, indistinguishable from chance). This is the single most scientifically defensible finding in the project:
-- Text baseline at chance rules out surface artifacts
+AUC 0.755 (probe at L3) vs 0.499 (char) / **0.569 (tfidf)** — delta +0.186 above the strongest text-level baseline. This is the single most scientifically defensible finding in the project:
+- TF-IDF char n-gram baseline near chance (0.569) rules out surface character artifacts
 - Grouped CV by carrier_group_id prevents split leakage
 - Balanced labels (1000/1000) eliminate class-imbalance concerns
 - The signal is genuinely above what surface text features can explain
 - Transfer analysis shows synonym-trained probes generalize to other methods (AUC 0.72-0.93)
 
-**Qwen3-32B replication (CONFIRMED vs char features, 2026-03-22):** game_scenarios_v2 synonym probe achieves AUC 0.868 at L48. Char text baseline on the same dataset: AUC 0.620. Delta = **+0.248**, almost identical to Llama's +0.256. **However, synonym-specific tfidf baseline is missing (Concern 8).** Until tfidf is shown to be near chance for synonym, the delta is calibrated against the weaker of the two available baselines. This is the single highest-priority item to resolve.
+**Qwen3-32B replication attempt (RETRACTED — 2026-03-22):** game_scenarios_v2 synonym probe AUC 0.868 at L48, but tfidf baseline = **0.870** on same data. Probe adds no signal beyond char n-grams. The game_scenarios_v2 dataset's domain-specific vocabulary makes synonym substitutions char-detectable; the Redwood dataset does not have this property. These two experiments are not comparable and the Qwen result does not replicate the Llama finding. See Concern 8 for details.
 
 ### 3.2 Qwen3-32B suffix_marker behavioral specificity (STRONG)
 
@@ -310,11 +311,9 @@ The infrastructure supports valid experiments -- the concerns above are about sp
 
 ## 4. Recommended Fixes (Prioritized)
 
-### **NEW Priority 1: Compute synonym-specific tfidf baseline (CRITICAL — 2026-03-22 ~18h30)**
+### ~~Priority 1: Compute synonym-specific tfidf baseline~~ DONE — SPLIT VERDICT (2026-03-22)
 
-The headline finding (synonym delta +0.248) is calibrated against char features only. Char features cannot detect word-level substitutions. Tfidf character n-grams might. No synonym-specific tfidf exists. See Concern 8.
-
-Requires modifying `07_text_baselines.py` to compute tfidf per-method (currently only char is per-method). ~10-15 min CPU.
+Per-method tfidf computed on both models. `07_text_baselines.py` updated with `per_method_tfidf` output. Results: Llama synonym tfidf=0.569 (claim confirmed, delta +0.186); Qwen synonym tfidf=0.870 (claim retracted, delta≈0). See Concern 8 for full analysis.
 
 ### ~~Priority 2 (was 1): Run text baselines on ALL game-scenario datasets~~ DONE (2026-03-22)
 
@@ -342,24 +341,25 @@ All three GCM scripts now use `f"Context from previous assistant:\n{entry['input
 
 ## 5. Honest Claim Inventory (Updated)
 
-### Claims the data supports:
+### Claims the data supports (updated 2026-03-22):
 
-1. Llama-3-8B internally represents synonym steganography above what surface text features explain (AUC 0.755 vs baseline 0.499).
+1. **Llama-3-8B internally represents synonym steganography above what surface text features explain** (AUC 0.755 vs char 0.499 / tfidf 0.569). Delta +0.186 above strongest baseline. Confirmed against all controls.
 2. Qwen3-32B has perfect behavioral specificity on surface-marker detection: suffix_marker 49/1000 stego, 0/1000 clean (p < 1e-14); prefixsuffix_varied 194/2500 stego, 0/2500 clean.
 3. Qwen3-32B has zero behavioral compliance on all 5 Redwood stego methods (3/1000 stego vs 4/1000 clean on game_scenarios_v2).
 4. Behavioral compliance and probe signal appear orthogonal across models and methods.
 5. Varied surface markers elicit higher compliance than the original `+++` token: suffix_marker_varied 12.2% and inline_keyword 10.2% vs original suffix_marker 4.9%. Prefix markers are suppressed (0.8%). This suggests RLHF filtering is marker-specific, not category-level.
 
-### Claims the data does NOT support (confirmed by text baselines 2026-03-22):
+### Claims the data does NOT support (updated 2026-03-22):
 
 1. ~~"Qwen3-32B internally represents steganography (AUC 0.929)."~~ **CONFIRMED ARTIFACT:** tfidf baseline = 1.000 on suffix_marker. Probe detects literal `+++` token.
 2. ~~"AUC improvement from 0.861 to 0.929 shows ground-truth labels access deeper representations."~~ These are incomparable metrics answering different questions at different difficulties.
 3. ~~"GCM identifies stego-specific attention heads in layers 39-47."~~ 44% overlap with whitespace negative control, no permutation null, and stale prompt template. All existing GCM results need regeneration.
 4. ~~"Whitespace stego_vs_clean probe (AUC 0.826) shows model detects whitespace encoding."~~ **CONFIRMED ARTIFACT:** char baseline = 1.000 on whitespace. Probe detects newline/tab formatting.
+5. ~~"Qwen3-32B internally represents synonym steganography (cross-model replication)."~~ **RETRACTED (2026-03-22):** synonym tfidf baseline = 0.870, matching probe AUC 0.868. The game_scenarios_v2 dataset's domain vocabulary makes substitutions char-detectable. The two models were tested on structurally different datasets; the similar char deltas (+0.248 vs +0.256) were a coincidence, not a replication. See Concern 8.
 
-### Claims that need one more experiment:
+### Claims that need more experiments: NONE
 
-1. ~~"Qwen3-32B internally represents synonym steganography."~~ **PARTIALLY CONFIRMED (2026-03-22).** Synonym probe AUC 0.868, char baseline 0.620, delta +0.248. **Awaits synonym-specific tfidf baseline (Concern 8).** If synonym tfidf < 0.6: fully confirmed. If > 0.8: collapses. This is a 10-15 min CPU experiment -- the single highest priority remaining.
+All pending calibrations resolved. The single confirmed finding is Llama-3-8B synonym probe. Qwen cross-model replication is retracted.
 
 ---
 

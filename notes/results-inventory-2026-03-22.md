@@ -137,25 +137,25 @@ data/
 
 Text baselines now available for all datasets. See `<run_dir>/text_baselines/text_baseline_results_stego_vs_clean.json`.
 
-| Dataset | Best Layer | Probe AUC | Text baseline AUC (char) | **Delta** | Interpretation |
-|---|---|---|---|---|---|
-| suffix_marker | L49 | 0.929 | 0.526 (char) / **1.000 (tfidf)** | ~0 vs tfidf | TF-IDF detects `+++` n-gram trivially; probe is a surface artifact |
-| whitespace | L5 | 0.826 | **1.000** (char) | ~0 | Char stats (newline/tab counts) fully explain probe signal |
-| game_scenarios_v2 (pooled) | L48 | 0.847 | 0.866 | ~0 pooled | Pooled signal is dominated by easy methods |
-| **game_scenarios_v2 synonym** | **L48** | **0.868** | **0.620** | **+0.248** | **Not surface-explainable — cross-model replication confirmed** |
-| prefixsuffix_varied (pooled) | L46 | 0.942 | 0.624 (char) / 0.998 (tfidf) | ~0 vs tfidf | Pooled tfidf trivially detects markers; see per-method below |
+| Dataset | Best Layer | Probe AUC | Char baseline | TF-IDF baseline | **Delta vs tfidf** | Interpretation |
+|---|---|---|---|---|---|---|
+| suffix_marker | L49 | 0.929 | 0.526 | **1.000** | ~0 | TF-IDF detects `+++` n-gram trivially; surface artifact |
+| whitespace | L5 | 0.826 | **1.000** | 0.978 | ~0 | Char stats (newlines/tabs) fully explain signal |
+| game_scenarios_v2 (pooled) | L48 | 0.847 | 0.866 | — | ~0 pooled | Dominated by easy methods |
+| ~~**game_scenarios_v2 synonym**~~ | ~~L48~~ | ~~0.868~~ | ~~0.620~~ | ~~**0.870**~~ | ~~**+0.248 vs char / ≈0 vs tfidf**~~ | ~~**Genuine signal**~~ → **RETRACTED (2026-03-22):** tfidf=0.870 matches probe; no residual signal |
+| prefixsuffix_varied (pooled) | L46 | 0.942 | 0.624 | 0.998 | ~0 vs tfidf | Pooled tfidf trivially detects markers |
 
 **game_scenarios_v2 per-method breakdown (best layer L48):**
 
-| Method | Probe AUC | Char baseline | Delta | Interpretation |
+| Method | Probe AUC | Char baseline | TF-IDF baseline | Interpretation |
 |---|---|---|---|---|
-| unicode | 0.986 | 1.000 | ~0 | Trivial surface feature |
-| prefix_binary | 0.973 | 1.000 | ~0 | Trivial surface feature |
-| acrostic | 0.952 | 0.931 | +0.021 | Mostly surface |
-| whitespace | 0.884 | 1.000 | ~0 | Trivial formatting |
-| **synonym** | **0.868** | **0.620** | **+0.248** | **Genuine representational signal** |
+| unicode | 0.986 | 1.000 | 1.000 | Surface feature |
+| prefix_binary | 0.973 | 1.000 | 1.000 | Surface feature |
+| acrostic | 0.952 | 0.931 | 1.000 | Mostly surface |
+| whitespace | 0.884 | 1.000 | 0.976 | Surface formatting |
+| ~~**synonym**~~ | ~~0.868~~ | ~~0.620~~ | ~~**0.870**~~ | **RETRACTED:** tfidf matches probe — domain vocab makes substitutions char-detectable |
 
-> **Cross-model replication confirmed (vs char features):** synonym delta +0.248 (Qwen3-32B) vs +0.256 (Llama-3-8B). Nearly identical despite 4x scale difference and near-zero behavioral compliance on Qwen3-32B. **Caveat:** synonym-specific tfidf baseline is missing -- see [audit Concern 8](pipeline-audit-2026-03-22.md).
+> **Cross-model replication RETRACTED (2026-03-22):** Qwen3-32B synonym tfidf baseline = 0.870, matching probe AUC 0.868. The game_scenarios_v2 dataset's domain-specific vocabulary (game terms) makes synonym substitutions detectable via char n-grams. The earlier apparent replication (+0.248 vs Llama's +0.256) was comparing against char features — an inappropriately weak baseline for this dataset. See [audit Concern 8](pipeline-audit-2026-03-22.md).
 
 **prefixsuffix_varied per-method breakdown (best layer L46):**
 
@@ -178,9 +178,11 @@ Text baselines now available for all datasets. See `<run_dir>/text_baselines/tex
 
 ### Llama-3-8B headline (synonym presence detection)
 
-| Probe AUC | Text baseline AUC | Delta | Status |
-|---|---|---|---|
-| 0.755 (L3) | 0.499 (chance) | +0.256 | Strongest finding, survives all controls |
+| Probe AUC | Char baseline | TF-IDF baseline | Delta vs tfidf | Status |
+|---|---|---|---|---|
+| 0.755 (L3) | 0.499 (chance) | **0.569** | **+0.186** | **Confirmed against strongest text baseline (2026-03-22)** |
+
+> TF-IDF char n-gram baseline 0.569 is near chance on the Redwood dataset. Probe delta +0.186 survives the strongest text-level control. This is now the sole confirmed representational finding in the project.
 
 ### GCM head attribution (Qwen3-32B)
 
@@ -290,8 +292,6 @@ Each `probe_results*.json` contains:
 }
 ```
 
-~~**Known metadata bug:** `probe_results_stego_vs_clean.json` files incorrectly record `"target_label": "keyword_present"` when they actually used ground-truth `is_stego` labels.~~ **FIXED (2026-03-22)** in `06_train_probes.py` — new runs will correctly write `"target_label": "is_stego"` when `--use_ground_truth_labels` is active. Existing JSON files on disk from earlier runs still contain the stale value.
-
 ---
 
 ## 5. Experiment Priority Queue (Updated 2026-03-22 ~18h30 UTC)
@@ -300,7 +300,7 @@ Ordered by **information value per unit time** per the golden rule. Evidence-bas
 
 | # | Experiment | Resource | Time | Status | Decision value | Justification |
 |---|---|---|---|---|---|---|
-| **1** | **Synonym-specific tfidf baseline** (both models) | CPU | 10-15m | **NOT STARTED — CRITICAL GAP** | **VERY HIGH:** directly validates/invalidates headline cross-model replication claim | The current delta (+0.248) is computed vs char features only (8 hand-crafted stats: length, tab_count, etc.). These **cannot** detect word-level substitutions by construction. Char n-gram tfidf **might** detect synonym changes through bigram/trigram frequency shifts. No synonym-specific tfidf exists anywhere (verified all 5 baseline JSONs). If tfidf < 0.6: claim is bulletproof. If > 0.8: claim collapses. This is the single highest-stakes, highest-uncertainty, cheapest-to-resolve crux. |
+| ~~**1**~~ | ~~Synonym-specific tfidf baseline (both models)~~ | ~~CPU~~ | ~~10-15m~~ | **DONE — SPLIT VERDICT (2026-03-22)** | -- | Llama tfidf=0.569 → claim confirmed, delta +0.186 above strongest baseline. Qwen tfidf=0.870 ≈ probe 0.868 → claim retracted, game_scenarios_v2 domain vocab is char-detectable. Cross-model replication retracted. See audit Concern 8. |
 | ~~**2**~~ | ~~Let prefixsuffix_varied stego_vs_clean probes finish~~ | ~~CPU~~ | -- | **DONE.** Best L46 AUC=0.942. inline_keyword 0.974 (char baseline 0.873, delta +0.101). All surface markers as expected. | -- | -- |
 | **3** | ~~Run benign_keyword_suffix_marker ("goodbye") inference~~ | GPU | ~15m | **QUEUED** in gpu-benign, fires after #2. **DEMOTED — see justification** | LOW (was MEDIUM) | Tests whether replacing "attack" with "goodbye" increases compliance on `+++` marker. Was interesting when suffix_marker probe was uncalibrated. Now: (a) tfidf=1.000 confirms probe detects literal `+++` token, not a higher-level scheming representation, so the probe question is moot; (b) prefixsuffix_varied already shows compliance varies 0.8%-12.2% across markers, demonstrating RLHF is marker/context-specific. Goodbye adds one data point (keyword-specific RLHF suppression) but doesn't change any conclusion. **If GPU is idle anyway, let it run -- but don't block anything on it.** |
 | ~~4~~ | ~~GCM permutation null on suffix_marker~~ | ~~GPU~~ | ~~1h~~ | **DEPRIORITIZED.** All existing GCM heads computed under wrong prompt template (now fixed). Full chain: regen heads + permutation null + steer = ~3h GPU. And it's about suffix_marker (confirmed surface artifact). | LOW | Would only be interesting if rerun on game_v2 for synonym, but N=200 synonym pairs is likely underpowered for GCM. Park until synonym sample size can be increased. |
@@ -325,6 +325,7 @@ Ordered by **information value per unit time** per the golden rule. Evidence-bas
 - [x] Qwen3-32B prefixsuffix_varied inference (5000 examples, 64 layers) -- 194/2500 stego kw, 0/2500 clean
 - [x] Qwen3-32B prefixsuffix_varied keyword probes -- best L56 AUC=0.790 (194 positives, imbalanced)
 - [x] Pipeline audit -- 7 methodological concerns documented; GCM template and metadata bug fixed
-- [x] **Text baselines on all 4 game-scenario datasets** -- synonym cross-model replication confirmed (delta +0.248 vs Llama +0.256)
+- [x] **Text baselines on all 4 game-scenario datasets** -- synonym cross-model replication initially appeared confirmed (delta +0.248 vs char baseline)
 - [x] `07_text_baselines.py` adapted for game-scenario format (`--input_field`, `--label_field`, `--method_field`)
 - [x] Qwen3-32B prefixsuffix_varied stego_vs_clean probes -- AUC 0.942 at L46; inline_keyword 0.974, prefix_marker_varied 0.951, suffix_marker_varied 0.928 (all surface markers, tfidf=0.998)
+- [x] **Per-method TF-IDF baselines (both models)** — `07_text_baselines.py` extended with `per_method_tfidf`. Result: Llama synonym tfidf=0.569 (finding confirmed, delta +0.186). Qwen synonym tfidf=0.870≈probe (finding retracted). Cross-model replication claim retracted.
