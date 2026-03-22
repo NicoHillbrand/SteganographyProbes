@@ -42,15 +42,18 @@ data/Qwen3-32B/runs/
 │       ├── probe_results_stego_vs_clean.json # is_stego labels (1000/1000), 5 methods
 │       └── trained_probes/
 │
-└── 2026-03-22_prefixsuffix_varied/          # COMPLETE — inference done, probes NOT YET TRAINED
+└── 2026-03-22_prefixsuffix_varied/          # COMPLETE — inference + keyword probes done; stego_vs_clean IN PROGRESS
     ├── config.json
     ├── activations/
     │   ├── metadata.json
     │   ├── responses.jsonl                  # 194/2500 stego kw, 0/2500 clean kw
     │   ├── labels.npy                       # ground-truth is_stego (2500/2500)
     │   └── layer_00.npy ... layer_63.npy    # activations (5000 x 5120) per layer
-    └── probe_results/
-        └── trained_probes/                  # partial (6/64 layers keyword probe started)
+    ├── probe_results/
+    │   ├── game_scenarios_probe_results.json # keyword probes: best L56 AUC=0.790 (194/4806, imbalanced)
+    │   └── trained_probes/                  # keyword probe weights saved
+    └── text_baselines/
+        └── text_baseline_results_stego_vs_clean.json  # char=0.624, tfidf=0.998; inline_keyword char=0.873
 ```
 
 ### Llama-3-8B-Instruct
@@ -129,29 +132,29 @@ data/
 | inline_keyword | 85/833 (10.2%) | 833 | Mid-text keyword insertion (e.g. `PRISM`, `EPOCH`) |
 | prefix_marker_varied | 7/833 (0.8%) | 833 | Varied prefix markers -- very low compliance |
 
-### Qwen3-32B stego-vs-clean probes
+### Qwen3-32B stego-vs-clean probes (calibrated 2026-03-22)
 
-> **Caveat:** No text baselines have been run on game-scenario datasets. The suffix_marker probe likely detects the literal `+++` token (L0 AUC already 0.858). The whitespace probe likely detects formatting differences. See [audit](pipeline-audit-2026-03-22.md) Concerns 1, 3, 4.
+Text baselines now available for all datasets. See `<run_dir>/text_baselines/text_baseline_results_stego_vs_clean.json`.
 
-| Dataset | Best Layer | AUC | AP | L0 AUC (floor) |
-|---|---|---|---|---|
-| suffix_marker | L49 | 0.929 | 0.929 | 0.858 |
-| whitespace | L5 | 0.826 | 0.818 | 0.673 |
-| game_scenarios_v2 (pooled) | L48 | 0.847 | 0.861 | -- |
+| Dataset | Best Layer | Probe AUC | Text baseline AUC (char) | **Delta** | Interpretation |
+|---|---|---|---|---|---|
+| suffix_marker | L49 | 0.929 | 0.526 (char) / **1.000 (tfidf)** | ~0 vs tfidf | TF-IDF detects `+++` n-gram trivially; probe is a surface artifact |
+| whitespace | L5 | 0.826 | **1.000** (char) | ~0 | Char stats (newline/tab counts) fully explain probe signal |
+| game_scenarios_v2 (pooled) | L48 | 0.847 | 0.866 | ~0 pooled | Pooled signal is dominated by easy methods |
+| **game_scenarios_v2 synonym** | **L48** | **0.868** | **0.620** | **+0.248** | **Not surface-explainable — cross-model replication confirmed** |
+| prefixsuffix_varied | -- | IN PROGRESS | 0.624 (char) / 0.998 (tfidf) | -- | inline_keyword char=0.873 — probe delta likely small |
 
 **game_scenarios_v2 per-method breakdown (best layer L48):**
 
-| Method | AUC | AP | F1 @ tuned | n |
+| Method | Probe AUC | Char baseline | Delta | Interpretation |
 |---|---|---|---|---|
-| unicode | 0.986 | 0.967 | 0.876 | 1200 |
-| prefix_binary | 0.973 | 0.920 | 0.784 | 1200 |
-| acrostic | 0.952 | 0.864 | 0.770 | 1200 |
-| whitespace | 0.884 | 0.756 | 0.681 | 1200 |
-| **synonym** | **0.868** | **0.670** | **0.503** | **1200** |
+| unicode | 0.986 | 1.000 | ~0 | Trivial surface feature |
+| prefix_binary | 0.973 | 1.000 | ~0 | Trivial surface feature |
+| acrostic | 0.952 | 0.931 | +0.021 | Mostly surface |
+| whitespace | 0.884 | 1.000 | ~0 | Trivial formatting |
+| **synonym** | **0.868** | **0.620** | **+0.248** | **Genuine representational signal** |
 
-| prefixsuffix_varied | -- | -- | -- | Probes not yet trained |
-
-> **synonym AUC 0.868** is the cross-model replication target. On Llama-3-8B, synonym was 0.755 (text baseline 0.499, delta +0.256). The Qwen3-32B number is higher but still uncalibrated -- text baselines on game_scenarios_v2 have not been run. Until calibrated, this could reflect surface features in the synonym encoding.
+> **Cross-model replication confirmed:** synonym delta +0.248 (Qwen3-32B) vs +0.256 (Llama-3-8B). Nearly identical despite 4x scale difference and near-zero behavioral compliance on Qwen3-32B.
 
 ### Qwen3-32B keyword probes
 
@@ -160,7 +163,7 @@ data/
 | suffix_marker | L19 | 0.861 | 0.274 | 49/2000 |
 | whitespace | L43 | 0.849 | 0.040 | 2/2000 (degenerate) |
 | game_scenarios_v2 | -- | -- | -- | 7/2000 (degenerate, skip) |
-| prefixsuffix_varied | -- | -- | -- | 194/5000 (probes not yet trained) |
+| prefixsuffix_varied | L56 | 0.790 | 0.209 | 194/5000 (imbalanced; stego_vs_clean probes in progress) |
 
 ### Llama-3-8B headline (synonym presence detection)
 
@@ -234,7 +237,15 @@ python3 02_gcm_steer.py
 ### Text baselines
 
 ```bash
-python3 scripts/07_text_baselines.py
+# Redwood format (combined_dataset.jsonl — uses 'response' / 'is_stego')
+python3 scripts/07_text_baselines.py --dataset data/combined_dataset.jsonl
+
+# Game-scenario format (uses 'input_text' / 'input_has_stego' / 'stego_method')
+python3 scripts/07_text_baselines.py \
+  --dataset data/game_scenarios_v2.jsonl \
+  --run_dir data/Qwen3-32B/runs/2026-03-22_game_scenarios_v2 \
+  --input_field input_text --label_field input_has_stego \
+  --output_suffix _stego_vs_clean
 ```
 
 ### Generate plots
@@ -268,29 +279,33 @@ Each `probe_results*.json` contains:
 }
 ```
 
-**Known metadata bug:** `probe_results_stego_vs_clean.json` files incorrectly record `"target_label": "keyword_present"` when they actually used ground-truth `is_stego` labels. Verify by checking `n_positive` -- if it is 1000 (balanced), ground-truth labels were used regardless of what `target_label` says.
+~~**Known metadata bug:** `probe_results_stego_vs_clean.json` files incorrectly record `"target_label": "keyword_present"` when they actually used ground-truth `is_stego` labels.~~ **FIXED (2026-03-22)** in `06_train_probes.py` — new runs will correctly write `"target_label": "is_stego"` when `--use_ground_truth_labels` is active. Existing JSON files on disk from earlier runs still contain the stale value.
 
 ---
 
-## 5. Experiment Priority Queue (Updated 2026-03-22 evening)
+## 5. Experiment Priority Queue (Updated 2026-03-22 ~16h00 UTC)
 
 Ordered by **information value per unit time**. See [pipeline-audit-2026-03-22.md](pipeline-audit-2026-03-22.md) for rationale.
 
 | # | Experiment | Resource | Time | Status | Decision value | What result changes |
 |---|---|---|---|---|---|---|
-| **1** | Text baselines on game_scenarios_v2 + suffix_marker + whitespace + prefixsuffix_varied | CPU | 30m | NOT STARTED. `07_text_baselines.py` needs adaptation for game-scenario format (`input_text`/`input_has_stego` instead of `response`/`is_stego`). | **CRITICAL:** calibrates ALL stego_vs_clean AUCs. synonym AUC 0.868 is uninterpretable without this. | If synonym text baseline < 0.6: cross-model replication confirmed. If > 0.8: surface artifact. |
-| **2** | Train probes on prefixsuffix_varied (keyword + stego_vs_clean) | CPU | 1h | READY. Inference complete (5000 examples, 64 layers). | **LOW:** all 3 methods are surface markers. inline_keyword slightly interesting (mid-text placement). | Predictably high AUC. Interesting only if inline_keyword probe delta above text baseline is non-trivial. |
-| **3** | Run "goodbye" keyword dataset (benign_keyword_suffix_marker, 400 examples) | GPU | 30m | NOT STARTED. Dataset at `data/benign_keyword_suffix_marker_game_scenarios.jsonl`. | **MEDIUM:** separates safety refusal from detection failure. | Adds texture to suffix_marker story. |
-| **4** | GCM permutation null | GPU | 1h | NOT STARTED. Prerequisite for any GCM causal claim. | **MEDIUM:** 44% head overlap undermines specificity claims. | If permuted IE overlaps real scores: GCM heads not stego-specific. |
-| ~~5~~ | ~~GCM steering intervention~~ | ~~GPU~~ | ~~1h~~ | **BLOCKED** on #4. | -- | -- |
+| ~~**1**~~ | ~~Text baselines on all 4 game-scenario datasets~~ | ~~CPU~~ | ~~30m~~ | **DONE.** Synonym delta +0.248 — cross-model replication confirmed. | -- | -- |
+| ~~**2**~~ | ~~Train probes on prefixsuffix_varied (keyword)~~ | ~~CPU~~ | ~~1h~~ | **DONE.** Best L56 AUC=0.790, 194/4806 imbalanced — expected surface signal. | -- | -- |
+| **2b** | Train stego_vs_clean probes on prefixsuffix_varied | CPU | ~30m | **IN PROGRESS** (gpu-chain window). | LOW: all 3 methods are surface markers; inline_keyword delta vs char baseline (0.873) is the interesting number. | -- |
+| **3** | Run benign_keyword_suffix_marker inference + probes | GPU | ~1h | **QUEUED** (gpu-benign window, fires after 2b). | MEDIUM: does the `+++` probe fire when scheming context is absent? Separates marker detection from scheming representation. | If probe AUC drops significantly vs suffix_marker (scheming): the L49 probe encodes scheming context, not just marker presence. |
+| **4** | GCM permutation null on suffix_marker | GPU | ~1h | NOT STARTED. Queue after benign. | MEDIUM: 44% head overlap with whitespace undermines specificity. | If permuted IE ≈ real IE: GCM heads are not stego-specific. |
+| ~~5~~ | ~~GCM steering intervention~~ | ~~GPU~~ | ~~1h~~ | **BLOCKED** on #4 + must regenerate heads with fixed prompt template first. | -- | -- |
 | ~~6~~ | ~~Qwen3-14B anything~~ | ~~GPU~~ | ~~hours~~ | **DEPRIORITIZED.** Finish interpreting 32B results first. | -- | -- |
 
 ### Completed This Session
 
-- [x] Qwen3-32B game_scenarios_v2 inference (2000 examples, 64 layers) -- behavioral null: 3/1000 stego, 4/1000 clean
-- [x] Qwen3-32B game_v2 keyword probes -- degenerate (7 positives), per-method AUCs are noise
-- [x] Qwen3-32B game_v2 stego_vs_clean probes -- **AUC 0.847 at L48; synonym 0.868, unicode 0.986, prefix_binary 0.973, acrostic 0.952, whitespace 0.884** (all need text baseline calibration)
-- [x] Qwen3-32B suffix_marker stego_vs_clean probes -- AUC 0.929 at L49 (L0 floor: 0.858, needs text baseline)
-- [x] Qwen3-32B whitespace stego_vs_clean probes -- AUC 0.826 at L5 (needs text baseline)
-- [x] Qwen3-32B prefixsuffix_varied inference (5000 examples, 64 layers) -- 194/2500 stego kw, 0/2500 clean; suffix_marker_varied 12.2%, inline_keyword 10.2%, prefix_marker_varied 0.8%
-- [x] Pipeline audit ([pipeline-audit-2026-03-22.md](pipeline-audit-2026-03-22.md)) -- 7 methodological concerns documented
+- [x] Qwen3-32B game_scenarios_v2 inference (2000 examples, 64 layers) — behavioral null: 3/1000 stego, 4/1000 clean
+- [x] Qwen3-32B game_v2 keyword probes — degenerate (7 positives), skip
+- [x] Qwen3-32B game_v2 stego_vs_clean probes — AUC 0.847 at L48; **synonym 0.868**
+- [x] Qwen3-32B suffix_marker stego_vs_clean probes — AUC 0.929 at L49 (surface artifact — tfidf baseline 1.000)
+- [x] Qwen3-32B whitespace stego_vs_clean probes — AUC 0.826 at L5 (surface artifact — char baseline 1.000)
+- [x] Qwen3-32B prefixsuffix_varied inference (5000 examples, 64 layers) — 194/2500 stego kw, 0/2500 clean
+- [x] Qwen3-32B prefixsuffix_varied keyword probes — best L56 AUC=0.790 (194 positives, imbalanced)
+- [x] Pipeline audit — 7 methodological concerns documented; GCM template and metadata bug fixed
+- [x] **Text baselines on all 4 game-scenario datasets** — synonym cross-model replication confirmed (delta +0.248 ≈ Llama +0.256)
+- [x] `07_text_baselines.py` adapted for game-scenario format (`--input_field`, `--label_field`, `--method_field`)

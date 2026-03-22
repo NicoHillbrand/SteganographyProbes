@@ -61,6 +61,24 @@ parser.add_argument(
     default="",
     help="Optional suffix appended to the output filename before .json",
 )
+parser.add_argument(
+    "--input_field",
+    type=str,
+    default="response",
+    help="JSONL field to use as input text (game scenarios use 'input_text')",
+)
+parser.add_argument(
+    "--label_field",
+    type=str,
+    default="is_stego",
+    help="JSONL field to use as binary label (game scenarios use 'input_has_stego')",
+)
+parser.add_argument(
+    "--method_field",
+    type=str,
+    default=None,
+    help="JSONL field for stego method. Auto-detected if None (tries 'method', then 'stego_method').",
+)
 args = parser.parse_args()
 
 
@@ -310,9 +328,14 @@ def main():
             if line.strip():
                 examples.append(json.loads(line))
 
-    texts = [ex["response"] for ex in examples]
-    labels = np.array([1 if ex["is_stego"] else 0 for ex in examples])
-    methods = [ex.get("method", "unknown") for ex in examples]
+    texts = [ex[args.input_field] for ex in examples]
+    labels = np.array([1 if ex[args.label_field] else 0 for ex in examples])
+    method_field = args.method_field
+    if method_field is None:
+        # auto-detect: prefer 'method', fall back to 'stego_method'
+        first = examples[0] if examples else {}
+        method_field = "method" if "method" in first else ("stego_method" if "stego_method" in first else "method")
+    methods = [ex.get(method_field, "unknown") for ex in examples]
 
     groups = None
     group_list = []
