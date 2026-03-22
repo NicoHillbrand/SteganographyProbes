@@ -1,0 +1,220 @@
+{
+  "config": {
+    "args": {
+      "run_dir": "/home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract",
+      "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+      "dataset": "data/combined_dataset.jsonl",
+      "probe_layer": 3,
+      "batch_size": 8,
+      "max_length": 512,
+      "cache_dir": "/home/ubuntu/.cache/huggingface/hub"
+    },
+    "git_sha": "b55eb2b736b6529b9f889336ac16c8cd07e9f82c",
+    "timestamp": "2026-03-22T22:30:06.674316+00:00",
+    "python_version": "3.12.3 (main, Jan 22 2026, 20:57:42) [GCC 13.3.0]",
+    "torch_version": "2.7.0"
+  },
+  "probe_layer": 3,
+  "n_synonym_examples": 200,
+  "baseline_probe_score": 0.4357757841194865,
+  "ablation_scores_by_layer": {
+    "0": {
+      "ablated_score": 0.5938863287940656,
+      "drop": -0.15811054467457908
+    },
+    "1": {
+      "ablated_score": 0.6400423292739849,
+      "drop": -0.20426654515449838
+    },
+    "2": {
+      "ablated_score": 0.6727953600971907,
+      "drop": -0.23701957597770418
+    },
+    "3": {
+      "ablated_score": 0.6547159940484895,
+      "drop": -0.21894020992900298
+    },
+    "4": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "5": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "6": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "7": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "8": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "9": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "10": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "11": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "12": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "13": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "14": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "15": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "16": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "17": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "18": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "19": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "20": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "21": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "22": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "23": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "24": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "25": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "26": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "27": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "28": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "29": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "30": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    },
+    "31": {
+      "ablated_score": 0.4357757841194865,
+      "drop": 0.0
+    }
+  },
+  "sorted_layers_by_drop": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    0,
+    1,
+    3,
+    2
+  ],
+  "localization_layers_80pct": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    0,
+    1,
+    3,
+    2
+  ],
+  "localized": false,
+  "total_positive_drop": 0.0
+}
