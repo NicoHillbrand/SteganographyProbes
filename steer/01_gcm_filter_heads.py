@@ -157,21 +157,22 @@ def get_stego_knockout_attribution(
         log_prob_diff.backward()
 
         # 5. Calculate IE and Clean Up
-        for l in layer_indices:
-            name = f"blocks.{l}.attn.hook_z"
-            if name in current_grads and name in current_acts:
-                g = current_grads[name] # [batch, seq, head, d_head]
-                z = current_acts[name]  # [batch, seq, head, d_head]
-                
-                # IE = (grad * z).sum() over seq and d_head
-                g_mean = g.mean(dim=1) 
-                z_mean = z.mean(dim=1)
-                
-                # Step 2: Compute IE = (grad_mean * z_mean).sum() over d_head
-                # Resulting shape: [batch, head] -> .squeeze(0) -> [n_heads]
-                # This aligns with the IE = ∇z * z logic for causal mediation
-                ie_per_head = (g_mean * z_mean).sum(dim=-1).squeeze(0)
-                total_ie_scores[l] += ie_per_head.abs()
+        with torch.no_grad():
+            for l in layer_indices:
+                name = f"blocks.{l}.attn.hook_z"
+                if name in current_grads and name in current_acts:
+                    g = current_grads[name] # [batch, seq, head, d_head]
+                    z = current_acts[name]  # [batch, seq, head, d_head]
+                    
+                    # IE = (grad * z).sum() over seq and d_head
+                    g_mean = g.mean(dim=1) 
+                    z_mean = z.mean(dim=1)
+                    
+                    # Step 2: Compute IE = (grad_mean * z_mean).sum() over d_head
+                    # Resulting shape: [batch, head] -> .squeeze(0) -> [n_heads]
+                    # This aligns with the IE = ∇z * z logic for causal mediation
+                    ie_per_head = (g_mean * z_mean).sum(dim=-1).squeeze(0)
+                    total_ie_scores[l] += ie_per_head.abs()
         
         # Remove hooks to avoid memory leaks and overhead for next iteration
         model.reset_hooks()
@@ -188,6 +189,7 @@ def get_stego_knockout_attribution(
     num_to_keep = max(1, int(len(all_head_data) * (k / 100)))
     
     return all_head_data[:num_to_keep]
+
 
 if __name__ == "__main__":
     # %%
