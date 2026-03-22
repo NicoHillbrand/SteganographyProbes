@@ -837,7 +837,7 @@ def main():
 
     output = {
         "task": task_name,
-        "target_label": TARGET_LABELS.get(args.task, "label") if args.task else "label",
+        "target_label": "is_stego" if args.use_ground_truth_labels else (TARGET_LABELS.get(args.task, "label") if args.task else "label"),
         "model": meta.get("model", "unknown"),
         "n_examples": int(len(labels)),
         "n_positive": int(labels.sum()),
