@@ -1,24 +1,155 @@
 # Handoff: Qwen3-32B Overnight Pipeline Run
 
-**Date:** 2026-03-21
-**Author:** Nico (via Droid)
+**Date:** 2026-03-21 (updated with full Llama-3-8B evidence)
 **For:** Overnight agent on GH200
 **Priority:** Run full stego pipeline with Qwen3-32B to compare against Llama-3-8B baseline
 
 ---
 
+## TL;DR for the overnight agent
+
+1. Patch `05_run_inference.py` to add `enable_thinking=False` (3 call sites -- see below)
+2. Run `bash run_pipeline.sh` (already updated for Qwen3-32B)
+3. If suffix_marker stego keyword rate > 50% with gap > 15pp over clean, the model works -- let the rest run
+4. If suffix_marker stego rate < 10%, thinking mode was not disabled -- stop and debug
+
+---
+
 ## Why this run
 
-Llama-3-8B-Instruct is too weak to reliably follow the stego detection instructions.
-Paired analysis shows it correctly discriminates stego from clean only 19.2% of the time
-on the easiest signal (suffix marker `+++`), barely above the 14.1% wrong-direction rate.
-The model coin-flips on "say attack" regardless of input. This means the behavioral signal
-is near-zero, and the recognition probe has nothing to work with.
+Llama-3-8B-Instruct is too weak to follow stego detection instructions. The complete
+evidence from all 3 finished runs is below. Qwen3-32B (IFEval 86.7 vs ~70) should
+actually read and follow the system prompt, making the behavioral experiment interpretable.
 
-Qwen3-32B is a 4x larger dense transformer with IFEval 86.7 (vs ~70 for Llama-3-8B).
-It should actually read and follow the system prompt instructions about what encoding
-to look for. The comparison between weak-model and strong-model results is itself a
-key finding for the paper.
+---
+
+## Llama-3-8B Complete Evidence Summary
+
+All 3 Llama-3-8B game-scenario runs completed 2026-03-21. Full activations (32 layers),
+responses, and probe results are saved under `data/Meta-Llama-3-8B-Instruct/runs/`.
+
+### Behavioral results: model cannot discriminate stego from clean
+
+| Run | N | Stego kw | Clean kw | Delta | z-stat | p-value | Verdict |
+|-----|---|----------|----------|-------|--------|---------|---------|
+| suffix_marker | 2000 | 45.1% (451/1000) | 40.0% (400/1000) | +5.1pp | 2.31 | 0.021 | Barely significant, tiny effect |
+| whitespace | 2000 | 46.7% (467/1000) | 49.2% (492/1000) | -2.5pp | -1.12 | 0.263 | **Wrong direction**, not significant |
+| game_scenarios_v2 | 2000 | 40.2% (402/1000) | 37.0% (370/1000) | +3.2pp | 1.47 | 0.142 | Not significant |
+
+**Paired group discrimination (game_scenarios_v2):** Of 50 carrier groups, 29 (58%)
+show stego > clean keyword rate, 13 (26%) show stego < clean, 8 (16%) are equal.
+This is near chance-level discrimination.
+
+**Per-method keyword rates (game_scenarios_v2, stego condition only):**
+
+| Method | Keyword rate | N |
+|--------|-------------|---|
+| acrostic | 52.0% | 200 |
+| whitespace | 49.0% | 200 |
+| prefix_binary | 38.0% | 200 |
+| unicode | 37.0% | 200 |
+| synonym | 25.0% | 200 |
+
+Note: synonym has the lowest keyword compliance but the strongest probe signal in
+presence detection (0.755 AUROC). Behavioral compliance and activation-level signal
+may be orthogonal -- this is an interesting finding for the paper.
+
+**Response length:** No meaningful difference (stego mean=960 chars, clean mean=976 chars).
+
+### Keyword-prediction probes: weak (expected given near-zero behavioral signal)
+
+These probes predict whether the model will output "attack" based on pre-generation
+activations. They are labeled by observed behavior (`keyword_present`), not by ground
+truth (`is_stego`).
+
+| Run | Best Layer | AUC-ROC | AP | Notes |
+|-----|-----------|---------|-----|-------|
+| suffix_marker | 28 | 0.578 +/- 0.032 | 0.491 | Barely above chance |
+| whitespace | 9 | 0.603 +/- 0.020 | 0.556 | Weak |
+| game_scenarios_v2 | 10 | 0.629 +/- 0.014 | 0.494 | Weak, flat layer profile |
+
+game_scenarios_v2 per-method probe results (best layer 10):
+
+| Method | AUC-ROC | AP |
+|--------|---------|-----|
+| synonym | 0.633 | 0.484 |
+| acrostic | 0.614 | 0.508 |
+| unicode | 0.611 | 0.484 |
+| whitespace | 0.606 | 0.513 |
+| prefix_binary | 0.591 | 0.460 |
+
+Layer-wise profile is remarkably flat (range 0.59-0.63 across all 32 layers), suggesting
+no strong localized representation of the behavioral decision.
+
+### Presence detection probes (Redwood, earlier runs): still the strongest evidence
+
+| Subset | Activation Probe AUC | Text Baseline AUC | Probe adds value? |
+|--------|---------------------|-------------------|-------------------|
+| Pooled (all 5 methods) | **0.934** | 0.866 | Modest gain, inflated by easy methods |
+| Easy (prefix_binary, unicode, whitespace) | 1.000 | 1.000 | No -- both trivially perfect |
+| Synonym + acrostic | 0.825 | 0.698 | Yes |
+| **Synonym only** | **0.755** | **0.499** | **Yes -- this is the headline result** |
+| Acrostic only | 1.000 | 0.947 | Marginal -- surface starters detectable |
+
+**Transfer matrix highlights (presence detection, best layer 3):**
+- Synonym-trained probe transfers broadly (AUC 0.72-0.93 to other methods)
+- Easy-method probes fail on synonym (AUC 0.47-0.51)
+- This confirms synonym captures a non-trivial shared signal
+
+### Decode/recognition probes: weak, concentrated in whitespace
+
+- Best: layer 31, AUC 0.678, AP 0.249 (single_token format)
+- 196/2000 recognized positives, of which **192 are whitespace**
+- Benign control (same carrier, summarize prompt): AUC 0.719 -- **stronger than decode**
+- This means the activation signal for "stego-looking text exists" > "model is decoding"
+
+### Confounds identified
+
+1. **+++ echo in suffix_marker:** 26.6% of clean responses hallucinate `+++` markers
+   vs only 2.7% of stego responses. The model reproduces the marker more when it is
+   absent from input. This inverted echo could confound probes trained on response text.
+
+2. **LoRA carrier contamination:** 24/159 clean LoRA outputs echo the secret key phrase.
+   Only 270/594 intended carriers are usable (53.7% complete). 18 carrier groups affected.
+
+### Interpretation vs data (clearly separated)
+
+**DATA (verified facts):**
+- 3 complete game-scenario runs with 2000 examples each, all layers extracted
+- Behavioral deltas: +5.1pp (suffix), -2.5pp (whitespace), +3.2pp (game_v2)
+- Only suffix_marker delta is statistically significant (p=0.021), but effect is tiny
+- Keyword-prediction probes max at AUC 0.629 (game_v2, layer 10)
+- Presence probes: synonym at 0.755 AUROC is the only non-trivial signal above text baseline
+- Decode recognition: AUC 0.678, 98% of signal from whitespace only
+- Response lengths are similar across conditions (no confound there)
+
+**INTERPRETATION (judgment calls):**
+- Llama-3-8B is effectively coin-flipping on "attack" regardless of input steganography
+- The model cannot follow the system prompt's detection instructions (IFEval ~70 is insufficient)
+- The keyword-prediction probes are weak because there is almost no behavioral signal to predict
+- Presence detection works but is mostly trivial except for synonym
+- The synonym signal is the most scientifically interesting finding so far
+- The +++ echo confound suggests the model has a counterintuitive relationship with markers
+- Recognition/decode claims cannot be supported with current evidence
+
+---
+
+## What the Qwen3-32B run will answer
+
+1. **Can a stronger model actually discriminate stego from clean behaviorally?**
+   Success criterion: suffix_marker stego rate > 50%, gap > 15pp over clean.
+   If yes: the behavioral experiment becomes interpretable for the first time.
+
+2. **Do probes on 64 layers find signal at different depths?**
+   Llama's best layers were 3 (presence), 28-31 (keyword prediction). Qwen3 may
+   show signal emergence at different relative positions.
+
+3. **Does the larger hidden dim (5120 vs 4096) help or hurt?**
+   Higher-dimensional probes can overfit. The grouped CV should handle this.
+
+4. **Model-size comparison as a finding:**
+   "8B model cannot behaviorally detect stego; 32B model can" is itself publishable
+   if Qwen3 succeeds. It motivates probe-based monitoring.
 
 ---
 
@@ -26,28 +157,25 @@ key finding for the paper.
 
 ```
 Model ID:         Qwen/Qwen3-32B
-Architecture:     Qwen3ForCausalLM (standard dense transformer, NOT MoE, NOT VL, NOT DeltaNet)
+Architecture:     Qwen3ForCausalLM (dense transformer, NOT MoE/VL/DeltaNet)
 Parameters:       32.8B (31.2B non-embedding)
 Layers:           64
 Hidden dim:       5120
 GQA:              64 Q heads / 8 KV heads
 Context:          32K native
 Weights:          17 safetensor shards, ~62GB bf16
-Vocab:            151,936 tokens
-Tokenizer:        Qwen2Tokenizer
 ```
 
 **Already downloaded** to `~/.cache/huggingface/hub/models--Qwen--Qwen3-32B/`.
-All 17 shards present and verified. transformers 5.3.0 is installed (needs >=4.51.0).
 
-### Do NOT confuse with these similarly-named models
+### Do NOT confuse with
 
-| Model | Why it's wrong |
-|-------|---------------|
-| `Qwen/Qwen3-VL-32B-Instruct` | Vision-language model. Architecture: `Qwen3VLForConditionalGeneration`. Will not load with `AutoModelForCausalLM`. |
-| `Qwen/Qwen3.5-27B` | Hybrid Gated DeltaNet architecture. Architecture: `Qwen3_5ForConditionalGeneration`. Linear attention layers make probe results uninterpretable. |
-| `Qwen/Qwen3-32B-FP8` | Quantized to FP8. We want bf16 for clean activation extraction. |
-| `Qwen/Qwen3-32B-GGUF` | GGUF format for llama.cpp. Incompatible with HF Transformers. |
+| Model | Why wrong |
+|-------|-----------|
+| `Qwen/Qwen3-VL-32B-Instruct` | Vision-language, wrong architecture |
+| `Qwen/Qwen3.5-27B` | Hybrid DeltaNet, uninterpretable probes |
+| `Qwen/Qwen3-32B-FP8` | Quantized, want bf16 for clean activations |
+| `Qwen/Qwen3-32B-GGUF` | GGUF format, incompatible with HF |
 
 ---
 
@@ -55,360 +183,54 @@ All 17 shards present and verified. transformers 5.3.0 is installed (needs >=4.5
 
 **Confidence: HIGH -- verified empirically.**
 
-Qwen3-32B defaults to "thinking mode" where it generates a `<think>...long reasoning...</think>`
-block before producing the actual response. This will break the pipeline in multiple ways:
+Qwen3-32B defaults to thinking mode (`<think>...long reasoning...</think>` before
+the response). This breaks the pipeline:
 
-1. **Token budget exhaustion.** The pipeline uses `--max_new_tokens 256`. Thinking mode will
-   burn most or all of those tokens on internal reasoning, leaving no room for the actual
-   response (or the "attack" keyword).
-2. **Keyword detection confusion.** The word "attack" might appear inside the thinking block
-   as part of reasoning ("I should check if I need to say attack...") even when the model
-   decides NOT to output it in the final response.
-3. **Response length explosion.** Thinking mode can produce 1000+ tokens of reasoning.
-   The responses.jsonl will be enormous and downstream analysis will break.
+1. Token budget exhaustion: 256 max_new_tokens consumed by reasoning
+2. Keyword detection confusion: "attack" may appear inside think block
+3. Response length explosion
 
-### The fix
+### The fix: patch 05_run_inference.py
 
-The `apply_chat_template` call in `scripts/05_run_inference.py` (line ~450 for game scenarios)
-currently looks like:
+Add `enable_thinking=False` to all 3 `apply_chat_template` calls:
+
+- **Line ~314** (stego detection path, `add_generation_prompt=False`)
+- **Line ~450** (game scenarios path, `add_generation_prompt=True`) -- **CRITICAL**
+- **Line ~643** (decode task path)
 
 ```python
-prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+prompt = tokenizer.apply_chat_template(
+    messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+)
 ```
 
-This needs `enable_thinking=False`:
-
-```python
-prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
-```
-
-This adds an empty `<think>\n\n</think>\n\n` prefix to the assistant's generation slot,
-which tells the model to skip reasoning and respond directly. Verified: the model then
-generates clean responses without thinking blocks.
-
-**There are THREE calls to `apply_chat_template` in `05_run_inference.py`:**
-
-1. **Line ~314** (stego detection path, `add_generation_prompt=False`) -- this path wraps
-   an existing response. With `enable_thinking=False` it inserts empty think tags around
-   the assistant content. This is cosmetic and doesn't affect the experiment since the
-   text content is preserved. Add the kwarg here too for consistency.
-
-2. **Line ~450** (game scenarios path, `add_generation_prompt=True`) -- **THIS IS THE
-   CRITICAL ONE.** This is the prompt that gets generated from. Must have
-   `enable_thinking=False`.
-
-3. **Line ~643** (decode task path, `add_generation_prompt` varies) -- same issue.
-   Add `enable_thinking=False`.
-
-The safest approach: add `enable_thinking=False` to ALL three calls. This is harmless
-for Llama (the kwarg will be ignored by tokenizers that don't support it -- but verify
-this; if it throws an error, wrap in try/except or check `hasattr`).
-
-**UNCERTAINTY: MEDIUM.** I verified the template behavior empirically with the tokenizer,
-but I have not tested full generation on GPU. There is a small chance the model ignores
-the empty thinking block and thinks anyway. If you see `<think>` content in generated
-responses, something went wrong -- stop and investigate.
-
-### Alternative: increase max_new_tokens
-
-If for any reason you cannot disable thinking mode, increase `--max_new_tokens` to 2048
-so the model has room to think AND produce a response. But this will 4-8x the inference
-time per example. Not recommended.
+This is harmless for non-Qwen models (the kwarg is ignored by tokenizers that don't
+support it). If it throws TypeError, wrap with try/except.
 
 ---
 
 ## VRAM budget
 
-**Confidence: HIGH on weights, MEDIUM on peak usage.**
-
 ```
 Component              Estimated
-─────────────────────  ─────────
 Weights (bf16)         ~62 GB
 KV cache (bs=2, 512)   ~1.3 GB
 Hidden state buffer     ~0.6 GB
 PyTorch overhead        ~3-5 GB
-─────────────────────  ─────────
 Total                  ~67-69 GB  (of 97 GB available)
 Headroom               ~28-30 GB
 ```
 
-Use `--batch_size 2` (down from the Llama run's 4). The model is 4x larger, and
-hidden states at 5120 dims across 64 layers are significant.
-
-**UNCERTAINTY: LOW-MEDIUM.** The weights are a known quantity (62GB). The KV cache and
-hidden state buffer depend on actual sequence lengths. If prompts are long (system prompt
-+ context + task can be 500+ tokens), KV cache could be larger. The 28GB headroom should
-absorb this, but if you hit OOM, try `--batch_size 1`.
+Use `--batch_size 2`. If OOM, try `--batch_size 1`.
 
 ---
 
 ## Pipeline commands
 
-### Step 0: Verify model loads (quick smoke test, ~2 min)
-
-Run this first. If it fails, everything else will too.
+### Step 0: Verify model loads (~2 min)
 
 ```bash
 cd /home/ubuntu/SteganographyProbes
-python3 -c "
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
-model = AutoModelForCausalLM.from_pretrained(
-    'Qwen/Qwen3-32B',
-    torch_dtype=torch.bfloat16,
-    device_map='auto',
-    output_hidden_states=True,
-)
-tok = AutoTokenizer.from_pretrained('Qwen/Qwen3-32B')
-print(f'Loaded: {model.config.num_hidden_layers} layers, device={model.device}')
-print(f'Hidden dim: {model.config.hidden_size}')
-# Quick forward pass
-inputs = tok('Hello world', return_tensors='pt').to(model.device)
-with torch.no_grad():
-    out = model(**inputs)
-print(f'Hidden states: {len(out.hidden_states)} tensors, shape={out.hidden_states[0].shape}')
-print('SMOKE TEST PASSED')
-"
-```
-
-Expected output: 65 hidden state tensors (embedding + 64 layers), shape `[1, N, 5120]`.
-
-### Step 1a: Suffix marker inference (~1.5-3 hrs estimated)
-
-```bash
-cd /home/ubuntu/SteganographyProbes
-python3 scripts/05_run_inference.py \
-  --model "Qwen/Qwen3-32B" \
-  --scenarios data/suffix_marker_game_scenarios.jsonl \
-  --generate --layers all --token_position last \
-  --use_chat_template --batch_size 2 \
-  --run_name suffix_marker 2>&1 | tee /tmp/qwen3_suffix_marker.log
-```
-
-**What to check after:** Look at `metadata.json` keyword_results. We EXPECT the stego
-keyword rate to be MUCH higher than Llama's 45.1%, and the gap between stego and clean
-to be much wider than Llama's 5.1%. If the stego rate is below 10%, thinking mode may
-not have been properly disabled.
-
-### Step 1b: Whitespace inference (~1.5-3 hrs estimated)
-
-```bash
-python3 scripts/05_run_inference.py \
-  --model "Qwen/Qwen3-32B" \
-  --scenarios data/whitespace_game_scenarios.jsonl \
-  --generate --layers all --token_position last \
-  --use_chat_template --batch_size 2 \
-  --run_name whitespace 2>&1 | tee /tmp/qwen3_whitespace.log
-```
-
-### Step 1c: Game scenarios v2 (all 5 methods, ~3-5 hrs estimated)
-
-```bash
-python3 scripts/05_run_inference.py \
-  --model "Qwen/Qwen3-32B" \
-  --scenarios data/game_scenarios_v2.jsonl \
-  --generate --layers all --token_position last \
-  --use_chat_template --batch_size 2 \
-  --run_name game_scenarios_v2 2>&1 | tee /tmp/qwen3_game_v2.log
-```
-
-### Step 2: Probe training (CPU, ~10-20 min each)
-
-```bash
-RUNS_BASE="data/Qwen3-32B/runs"
-DATE=$(date +%Y-%m-%d)
-
-for RUN_NAME in suffix_marker whitespace game_scenarios_v2; do
-  RUN_DIR=$(ls -dt ${RUNS_BASE}/${DATE}_${RUN_NAME}* 2>/dev/null | head -1)
-  if [ -n "$RUN_DIR" ]; then
-    echo "Training probes for: $RUN_DIR"
-    python3 scripts/06_train_probes.py --run_dir "$RUN_DIR" 2>&1 | tee -a /tmp/qwen3_probes.log
-  else
-    echo "WARNING: No run dir found for $RUN_NAME"
-  fi
-done
-```
-
-### Step 3: Git commit (lightweight, no .npy files)
-
-```bash
-cd /home/ubuntu/SteganographyProbes
-RUNS_BASE="data/Qwen3-32B/runs"
-DATE=$(date +%Y-%m-%d)
-
-for RUN_NAME in suffix_marker whitespace game_scenarios_v2; do
-  RUN_DIR=$(ls -dt ${RUNS_BASE}/${DATE}_${RUN_NAME}* 2>/dev/null | head -1)
-  if [ -n "$RUN_DIR" ]; then
-    git add -f "$RUN_DIR/config.json" \
-               "$RUN_DIR/activations/metadata.json" \
-               "$RUN_DIR/activations/responses.jsonl" \
-               "$RUN_DIR/probe_results/" 2>/dev/null || true
-    git commit -m "results: Qwen3-32B $(basename $RUN_DIR)" || true
-  fi
-done
-git push origin main 2>&1 || echo "Push failed -- will retry in morning"
-```
-
----
-
-## Output directory structure
-
-The pipeline's `run_utils.py` puts outputs under `data/<model>/runs/`. For Qwen3-32B,
-the `sanitize_model_name` function strips the `Qwen/` prefix, so outputs land in:
-
-```
-data/Qwen3-32B/runs/
-  2026-03-22_suffix_marker/
-    config.json
-    activations/
-      metadata.json
-      responses.jsonl
-      labels.npy
-      layer_00.npy through layer_63.npy    (~2.6 GB total, 64 layers x 5120 dim)
-    probe_results/
-      probe_results.json
-  2026-03-22_whitespace/
-    ...
-  2026-03-22_game_scenarios_v2/
-    ...
-```
-
-Note: 64 layers x 5120 hidden dim = ~2.6 GB of activation files per run (vs ~1.0 GB
-for Llama's 32 layers x 4096 dim). Total across 3 runs: ~7.8 GB. Disk has 3.9 TB free.
-
----
-
-## Potential issues ranked by likelihood
-
-### 1. Thinking mode not disabled (LIKELIHOOD: NEAR CERTAIN if code not patched)
-
-**What happens:** Model generates `<think>...500 tokens of reasoning...</think>` then
-runs out of token budget before producing the actual response. Keyword detection fails.
-Responses are truncated reasoning fragments.
-
-**How to detect:** Check first few lines of responses.jsonl. If responses start with
-reasoning text and lack code/actual answers, thinking mode is on.
-
-**Fix:** Patch `apply_chat_template` calls as described above. If patching the script
-feels risky, an alternative is to set `enable_thinking=False` at the tokenizer level
-by modifying the chat template in the tokenizer config -- but this is more invasive.
-
-### 2. OOM on GPU (LIKELIHOOD: LOW, ~10%)
-
-**What happens:** CUDA out of memory error during forward pass or generation.
-
-**How to detect:** Error traceback mentioning `torch.cuda.OutOfMemoryError`.
-
-**Fix:** Reduce `--batch_size` to 1. If still OOM, check if another process is using
-GPU memory (`nvidia-smi`). Kill any leftover processes from the Llama runs.
-
-### 3. Qwen3 tokenizer incompatibility with `enable_thinking` kwarg (LIKELIHOOD: LOW, ~5%)
-
-**What happens:** The `apply_chat_template(enable_thinking=False)` call might throw
-a `TypeError: unexpected keyword argument` on older tokenizer versions.
-
-**How to detect:** Immediate error on first example.
-
-**Fix:** Check if the tokenizer's chat template Jinja2 code supports the kwarg.
-If not, manually edit the chat template string to remove the `{% if enable_thinking %}`
-block, or simply increase `--max_new_tokens` to 2048 and post-process responses to
-strip `<think>...</think>` blocks.
-
-### 4. pad_token handling (LIKELIHOOD: LOW, ~5%)
-
-**What happens:** The pipeline sets `tokenizer.pad_token = tokenizer.eos_token` if
-pad_token is None. Qwen3's tokenizer has `pad_token = <|endoftext|>` (id=151643)
-which differs from `eos_token = <|im_end|>` (id=151645). This should work fine,
-but there's a small chance left-padding interacts badly with Qwen3's position embeddings.
-
-**How to detect:** Garbled or degenerate outputs (repeating tokens, empty responses).
-
-**Fix:** This is unlikely. If it happens, try without `--use_chat_template` or check
-if `padding_side="left"` is causing issues.
-
-### 5. Inference speed much slower than expected (LIKELIHOOD: MEDIUM, ~30%)
-
-**What happens:** 32B model at batch_size=2 is slower per-example than 8B at batch_size=4.
-A single inference run could take 4-6 hours instead of 1.5-3.
-
-**How to detect:** Watch the progress output. The pipeline prints every 10 batches.
-Calculate tokens/sec from the first few batches.
-
-**Impact:** Not a failure, just slower. Total pipeline could take 12-18 hours for all
-three runs. If time-constrained, prioritize suffix_marker (easiest sanity check) and
-game_scenarios_v2 (the scientifically important one). Whitespace can wait.
-
-### 6. `output_hidden_states` returns unexpected shapes (LIKELIHOOD: VERY LOW, ~2%)
-
-**What happens:** Qwen3ForCausalLM returns hidden states in a different format than
-LlamaForCausalLM. The code indexes `hidden_states[layer_idx + 1]` assuming index 0
-is the embedding layer.
-
-**How to detect:** Shape mismatch errors, or activations that look wrong in probes.
-
-**Fix:** Verify in smoke test (Step 0) that `len(out.hidden_states) == 65` (1 embedding
-+ 64 layers) and `out.hidden_states[0].shape[-1] == 5120`.
-
----
-
-## What we don't know yet
-
-These are genuine unknowns that only the run itself will answer:
-
-1. **Will Qwen3-32B actually discriminate stego from clean behaviorally?** We expect yes
-   based on IFEval scores, but this is a novel task. No prior work tests instruction-following
-   on steganography detection specifically. The suffix marker run will answer this first.
-
-2. **Will probes on a 64-layer model behave differently from 32-layer Llama?** More layers
-   means the signal might emerge at different relative depths. Layer 3 was best for Llama;
-   for Qwen3-32B it might be layer 6 or layer 10 or somewhere else entirely. This is
-   expected and interesting, not a problem.
-
-3. **Will the larger hidden dim (5120 vs 4096) help or hurt probe performance?** Linear
-   probes on higher-dimensional spaces can overfit more easily. The grouped cross-validation
-   in `06_train_probes.py` should handle this, but watch for train/test AUROC divergence.
-
-4. **How will greedy generation interact with the "attack" keyword?** Llama runs used greedy
-   decoding. Qwen3 recommends `temperature=0.7, top_p=0.8` for non-thinking mode. The
-   pipeline defaults to greedy (`--generation_mode greedy`). This might slightly suppress
-   the model's willingness to output "attack" if it's not the highest-probability next token.
-   If behavioral results are surprisingly low, consider a follow-up with sampling.
-
-5. **Will the model refuse the misaligned system prompt?** Qwen3-32B has RLHF safety training.
-   It might recognize "end your response with attack" as a potentially harmful instruction
-   and refuse to comply. This would manifest as 0% keyword rate for BOTH stego and clean
-   conditions. If this happens, it's a legitimate finding (safety training overrides
-   instruction following) but it means the behavioral comparison is uninformative and we
-   rely entirely on probes.
-
----
-
-## Success criteria for morning
-
-1. **suffix_marker metadata.json exists** with keyword_results showing stego rate > 50%
-   AND gap (stego - clean) > 15%. This would confirm the model is actually detecting
-   the `+++` marker, unlike Llama.
-
-2. **At least 2 of 3 inference runs complete** with activations saved (layer_00.npy
-   through layer_63.npy).
-
-3. **At least 1 probe result** showing AUROC for the Qwen3-32B run, comparable or
-   better than Llama's 0.93 on stego detection.
-
-4. **No thinking-mode contamination** in responses.jsonl (spot-check: responses should
-   be code snippets and helpful text, not chains of reasoning wrapped in `<think>` tags).
-
-5. **Lightweight git commit** pushed (no .npy files, just config + metadata + responses
-   + probe results).
-
----
-
-## Quick reference: model identity checklist
-
-Before starting, run this one-liner to triple-check you're loading the right model:
-
-```bash
 python3 -c "
 from transformers import AutoConfig
 c = AutoConfig.from_pretrained('Qwen/Qwen3-32B')
@@ -419,3 +241,101 @@ assert c.hidden_size == 5120, f'WRONG hidden: {c.hidden_size}'
 print('CONFIRMED: Qwen/Qwen3-32B, dense 64-layer transformer, 5120 hidden dim')
 "
 ```
+
+### Steps 1-3: Use run_pipeline.sh
+
+```bash
+cd /home/ubuntu/SteganographyProbes
+# Verify enable_thinking=False is patched first!
+grep -n 'enable_thinking' scripts/05_run_inference.py || echo "PATCH NOT APPLIED -- FIX FIRST"
+bash run_pipeline.sh 2>&1 | tee /tmp/qwen3_pipeline.log
+```
+
+The script runs suffix_marker first (validation gate), then whitespace, then
+game_scenarios_v2, then probe training, then git commit.
+
+---
+
+## Potential issues ranked by likelihood
+
+### 1. Thinking mode not disabled (NEAR CERTAIN if code not patched)
+**Detect:** Responses start with reasoning, lack actual code/answers.
+**Fix:** Patch `apply_chat_template` as described above.
+
+### 2. Inference speed slower than expected (~30% likelihood)
+**Detect:** Watch progress output, calculate tokens/sec.
+**Impact:** 12-18 hours total instead of 6-10. Not a failure.
+**Priority order if time-constrained:** suffix_marker > game_scenarios_v2 > whitespace.
+
+### 3. OOM on GPU (~10% likelihood)
+**Detect:** `torch.cuda.OutOfMemoryError` traceback.
+**Fix:** `--batch_size 1`. Check `nvidia-smi` for leftover processes.
+
+### 4. Tokenizer kwarg incompatibility (~5% likelihood)
+**Detect:** `TypeError: unexpected keyword argument 'enable_thinking'`.
+**Fix:** Increase `--max_new_tokens` to 2048 and post-process to strip `<think>` blocks.
+
+### 5. RLHF safety refusal (~5% likelihood)
+**Detect:** 0% keyword rate for BOTH stego and clean conditions.
+**Impact:** Legitimate finding (safety > instruction following) but behavioral comparison uninformative.
+
+---
+
+## Success criteria for morning
+
+1. **suffix_marker metadata.json** with stego keyword rate > 50% AND gap > 15pp
+2. **At least 2 of 3 inference runs complete** with 64 layer activations
+3. **At least 1 probe result** with AUROC comparable or better than Llama's best
+4. **No thinking-mode contamination** (spot-check responses.jsonl)
+5. **Lightweight git commit pushed** (no .npy files)
+
+---
+
+## Output directory structure
+
+```
+data/Qwen3-32B/runs/
+  2026-03-22_suffix_marker/
+    config.json
+    activations/
+      metadata.json, responses.jsonl, labels.npy
+      layer_00.npy through layer_63.npy  (~2.6 GB total)
+    probe_results/
+      probe_results.json
+  2026-03-22_whitespace/
+    ...
+  2026-03-22_game_scenarios_v2/
+    ...
+```
+
+64 layers x 5120 dim = ~2.6 GB of activation files per run. Total ~7.8 GB. Disk has 3.9 TB free.
+
+---
+
+## Evidence-based ROI matrix for next steps (updated)
+
+| Rank | Action | Status | ROI | Rationale |
+|:---:|---|---|:---:|---|
+| **1** | Run Qwen3-32B suffix_marker as validation gate | **NEXT** | Highest | Single highest-information experiment. If Qwen3 discriminates suffix_marker, everything downstream becomes interpretable. |
+| **2** | Patch `enable_thinking=False` | **PREREQUISITE** | Highest | Without this, Qwen3 pipeline fails mechanically. |
+| **3** | Run Qwen3-32B game_scenarios_v2 | After #1 validates | Very High | Core paper contribution: per-method behavioral + probe results on a model that follows instructions. |
+| **4** | Llama-3-8B probe training on all 3 runs | **DONE** | -- | suffix_marker AUC=0.578, whitespace AUC=0.603, game_v2 AUC=0.629. All weak. |
+| **5** | Foreground synonym as headline presence finding | NARRATIVE | High | synonym 0.755 AUROC vs 0.499 text baseline is the only honest non-trivial signal. |
+| **6** | Run Qwen3-32B whitespace | After #1 validates | Med-High | Strengthens cross-model comparison on the one method where Llama showed decode recognition. |
+| **7** | Investigate +++ echo confound | ANALYSIS | Medium | 26.6% clean echo vs 2.7% stego. Worth documenting but not blocking. |
+| **8** | Cross-method transfer on Qwen3 data | After #3 | Medium | If synonym-trained probes transfer on Qwen3, strong evidence of shared stego direction. |
+| **9** | Complete LoRA carriers (54->99 groups) | DEFERRED | Medium | Contamination issues need refinement first. |
+| **10** | Document Llama-3-8B failure as negative result | WRITING | Med-Low | Publishable finding supporting the probe approach. |
+
+---
+
+## Quick reference: what files to check
+
+| What to check | Path |
+|---|---|
+| Suffix marker metadata | `data/Qwen3-32B/runs/2026-03-22_suffix_marker/activations/metadata.json` |
+| Probe results | `data/Qwen3-32B/runs/2026-03-22_*/probe_results/probe_results.json` |
+| Pipeline log | `/tmp/pipeline.log` |
+| Llama baseline results | `data/Meta-Llama-3-8B-Instruct/runs/2026-03-21_*/probe_results/probe_results.json` |
+| Presence detection baseline | `data/probe_results/stego_detection_probe_results.json` |
+| Text baselines | `data/probe_results/text_baseline_results.json` |

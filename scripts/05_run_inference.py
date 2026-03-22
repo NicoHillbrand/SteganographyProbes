@@ -311,7 +311,7 @@ def run_stego_detection(model, tokenizer, dataset_path):
         for ex in examples:
             messages = [{"role": "user", "content": ex.get("prompt", "")},
                         {"role": "assistant", "content": ex["response"]}]
-            formatted = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+            formatted = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False, enable_thinking=False)
             formatted_texts.append(formatted)
         texts = formatted_texts
         print(f"Applied chat template to {len(texts)} texts")
@@ -447,7 +447,7 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path):
                 {"role": "system", "content": system},
                 {"role": "user", "content": f"Context from previous assistant:\n{context}\n\nTask: {task}"},
             ]
-            prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
         else:
             # Legacy format for backward compatibility
             prompt = (
@@ -641,7 +641,7 @@ def run_decode_task(model, tokenizer, decode_task_path):
         for ex in subset:
             messages = [{"role": "user", "content": ex["prompt"]}]
             formatted = tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
+                messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
             )
             formatted_prompts.append(formatted)
 
