@@ -288,7 +288,7 @@ The Qwen run was on a structurally different dataset (game_scenarios_v2) with re
 
 ### 7.2 Claims Under Active Review
 
-6. **Llama-3-8B internally represents synonym steganography above text baseline (AUC 0.754, delta +0.185).** *Status: Retracted in v1, restoration attempted in v2.* The original extraction config is not on disk; v1 re-extraction (no chat template) gave 0.574; v2 (with chat template) is showing ~0.74 pooled — per-method synonym AUC pending.
+6. ~~**Llama-3-8B internally represents synonym steganography above text baseline (AUC 0.754, delta +0.185).**~~ **RETRACTED (v2 confirmed).** v1 (no chat template): AUC 0.574, delta +0.005. v2 (with chat template): AUC 0.489, delta −0.080. Original 0.754 does not replicate under any tested configuration.
 
 ### 7.3 Claims That Were Retracted
 
@@ -326,25 +326,101 @@ Steering alpha must be tuned against KL divergence on clean examples. At alpha=5
 
 ---
 
-## 9. Pending Results (v2 Pipeline)
+## 9. v2 Pipeline Results (COMPLETE — 2026-03-22 23:17 UTC)
 
-The following results will be added here when the v2 run completes (expected ~00:05 UTC):
+### 9.1 P0 Probe Training (v2, with --use_chat_template)
 
-| Result | Expected | Status |
+| Layer | AUC (pooled) |
+|---|---|
+| L3 | 0.690 |
+| L9 | 0.741 |
+| L26 | 0.750 |
+| **L31 (best)** | **0.751** |
+
+**Per-method breakdown at best layer (L31):**
+
+| Method | AUC | vs TF-IDF baseline |
 |---|---|---|
-| P0 per-method synonym AUC | > 0.70, per-method | Pending |
-| P0 L3 baseline probe score on synonym stego | > 0.70 | Pending |
-| P1 total positive drop | > 0.0 | Pending |
-| P1 localized (>80% drop in ≤3 layers) | TBD | Pending |
-| P1 top-3 layers by drop | L0–L5 expected | Pending |
-| P2 mean off-diagonal cosine | ~0.30 (expected similar to v1) | Pending |
-| P3 alpha=1.0: causal_confirmed | TBD | Pending |
-| P3 alpha=1.0: kl_divergence | Target < 0.3 | Pending |
-| P3 alpha=2.0: causal_confirmed | TBD | Pending |
+| acrostic | 0.871 | surface artifact |
+| prefix_binary | 0.880 | surface artifact |
+| **synonym** | **0.489** | **BELOW CHANCE (tfidf: 0.569)** |
+| unicode | 1.000 | trivially surface |
+| whitespace | 0.691 | surface artifact |
+
+**The synonym signal does NOT replicate under `--use_chat_template`.** Synonym AUC 0.489 is below the TF-IDF character n-gram baseline of 0.569 — the probe is performing at sub-chance for synonym detection in the chat-template format.
+
+**Key comparison across extraction formats:**
+
+| Extraction format | Synonym AUC (best layer) | vs TF-IDF (0.569) |
+|---|---|---|
+| Original (unknown config, 2026-03-20 era) | 0.754 | +0.185 |
+| v1 (no `--use_chat_template`) | 0.574 | +0.005 |
+| **v2 (`--use_chat_template`, correct)** | **0.489** | **−0.080** |
+
+The original 0.754 finding does not replicate under either re-extraction configuration tested. The signal was likely an artifact of a specific extraction setup no longer reproducible from disk.
+
+### 9.2 P1 Ablation (v2)
+
+- **Baseline probe score at L3 on synonym stego:** 0.589 (above 0.5 but not well-calibrated)
+- **Total positive drop:** 0.0
+- **Localized:** False
+- **Top-3 layers by drop:** L4, L5, L6 (but all drops ~0.0)
+- **80th-percentile localization layers:** All 32 layers required
+
+P1 is again null in v2. The probe at L3 assigns synonym stego examples a mean score of 0.589 — above chance but the drops when knocking out any individual layer are all zero. This confirms:
+1. The L3 probe weakly registers stego (0.589 > 0.5) based on the **pooled** direction (which captures unicode/acrostic surface features leaking through), but
+2. No single layer is responsible for building the L3 representation — the signal is either diffuse or corresponds to surface features already present at L0.
+
+### 9.3 P2 Cosine Similarity (v2)
+
+- **Mean off-diagonal cosine:** 0.283 (vs v1: 0.302 — consistent)
+- **Highest similarity:** L23–L26 cluster (~0.91–0.92)
+- **L3 most similar to:** L2 (0.57), L4 (0.56)
+- **Interpretation:** Multiple distinct sub-computations; L3 probe direction is local and does not generalize across the network
+
+### 9.4 P3 Probe-Direction Steering (v2)
+
+| Parameter | alpha=1.0 | alpha=2.0 |
+|---|---|---|
+| causal_confirmed | True | True |
+| mean_downstream_delta | +0.133 | +0.238 |
+| kl_divergence | 0.027 | 0.161 |
+
+At alpha=2.0: causal confirmation with KL=0.161 (acceptable utility cost). This is the best P3 result in the project — a direction from L3 that, when injected at alpha=2.0, shifts all downstream probe scores while barely affecting output distribution.
+
+**Critical caveat:** The L3 probe direction is the pooled direction from a probe trained on all 5 methods (dominated by acrostic/unicode/prefix_binary which have AUC ~0.88–1.00). The "causal confirmation" is that **the general stego-surface-detection direction** propagates causally — not specifically that synonym steganography is causally localized. The synonym probe component contributes minimally to this direction given its AUC of 0.489.
 
 ---
 
-## 10. Open Questions for Future Work
+## 10. Definitive Conclusions
+
+### 10.1 The Synonym Signal: Retracted
+
+The Llama-3-8B synonym AUC 0.754 finding (reported in earlier notes as the one signal surviving TF-IDF baselines) **does not replicate** under either attempted re-extraction:
+- v1 (no chat template): AUC 0.574, delta +0.005 over tfidf — marginal, within noise
+- v2 (with chat template): AUC 0.489, delta −0.080 — below tfidf baseline
+
+The original 0.754 was extracted with an unpreserved configuration. It is the consensus across all replication attempts that there is no robust synonym stego representation in Llama-3-8B that exceeds character n-gram text baselines.
+
+**This project has zero confirmed positive representational interpretability findings.** All probe signals are explained by surface text features (character n-grams, whitespace statistics, overt marker tokens).
+
+### 10.2 What Positive Methodological Findings Exist
+
+Despite the null representational result, the project produced meaningful methodological contributions:
+
+1. **GCM failure mode documented:** abs()-before-accumulate destroys condition-specificity. Permutation null test (ratio 0.924, 9/10 head overlap) provides a rigorous falsification standard that should be required for all gradient-based head attribution.
+
+2. **P3 steering calibration characterized:** At alpha=2.0, probe-direction steering shows downstream propagation (delta=+0.238) with low utility cost (KL=0.161). This is a valid method for validating causal direction existence, even when the probe itself doesn't detect a specific feature with high specificity.
+
+3. **Extraction format sensitivity quantified:** Synonym AUC varies from 0.489 to 0.574 to 0.754 across three extraction configurations on the same model and dataset. This is a large variance for a supposedly stable representational property, and demonstrates that extraction format must be held constant and documented in any interpretability claim.
+
+4. **Per-method text baseline protocol established:** The correct baseline order is: (1) per-method char features, (2) per-method TF-IDF character n-grams, (3) pooled variants for sanity. Pooled baselines dominated by easy methods mask failures on hard methods.
+
+5. **Behavioral-vs-representational disconnect documented:** Qwen3-32B refusal rate 95–99.7% despite high probe AUC (0.929). The model detects stego presence internally but RLHF suppresses the behavioral response. This is a clean dissociation between representation and action.
+
+---
+
+## 11. Open Questions for Future Work
 
 1. **Does the Llama synonym signal replicate robustly?** The v2 results will resolve whether the signal is real under proper extraction. If yes, a synonym-specific TF-IDF baseline on the v2-formatted texts should be run to confirm the delta survives.
 
@@ -360,5 +436,5 @@ The following results will be added here when the v2 run completes (expected ~00
 
 ---
 
-*Last updated: 2026-03-22 23:10 UTC — v2 pipeline running, P1/P2/P3 results pending.*
+*Last updated: 2026-03-22 23:25 UTC — v2 pipeline COMPLETE. All P0/P1/P2/P3 results incorporated. Synonym signal definitively retracted. Project has zero confirmed positive representational findings.*
 *Author: Claude Sonnet 4.6 (automated analysis session)*

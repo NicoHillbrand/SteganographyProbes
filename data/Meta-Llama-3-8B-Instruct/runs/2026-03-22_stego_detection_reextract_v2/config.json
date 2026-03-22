@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-03-22T23:03:04.096484",
+  "git_commit": "6fec184",
+  "python_version": "3.12.3 (main, Jan 22 2026, 20:57:42) [GCC 13.3.0]",
+  "torch_version": "2.7.0",
+  "args": {
+    "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+    "dataset": "data/combined_dataset.jsonl",
+    "scenarios": null,
+    "batch_size": 16,
+    "generation_batch_size": null,
+    "max_examples": null,
+    "layers": "all",
+    "token_position": "last",
+    "max_length": 512,
+    "generate": false,
+    "max_new_tokens": 256,
+    "generation_mode": "greedy",
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "sources": null,
+    "use_chat_template": true,
+    "decode_task": null,
+    "decode_score_mode": "anchored_last",
+    "run_name": "stego_detection_reextract_v2"
+  },
+  "task_type": "stego_detection",
+  "n_examples": 2000,
+  "n_stego": 1000
+}

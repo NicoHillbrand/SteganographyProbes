@@ -650,8 +650,18 @@ All GCM scripts now use the matched template. Head regen confirmed the template 
 2. ~~**Causal localization on Llama-3-8B synonym signal:**~~ **DONE — NO SIGNAL TO LOCALIZE (2026-03-22 ~22h31).** The synonym finding does not replicate on re-extraction (AUC 0.574 vs previous 0.755). P1 ablation confirms total positive drop = 0.0. P2 cosine analysis shows probe direction is local and does not persist. There is nothing left to localize.
 3. **Llama GCM real heads re-run:** The non-permuted heads computation completed but output file was lost to a path error. Re-run with absolute path to complete the real/permuted ratio comparison (~8 min GPU). Low priority — the Qwen precedent (ratio=0.92x) and the identical permuted layer pattern strongly predict the same failure.
 
-All pending calibrations on probe claims are resolved. All GCM claims are resolved (negative on both models). The single confirmed representational finding is Llama-3-8B synonym probe. Qwen cross-model replication is retracted.
+All pending calibrations on probe claims are resolved. All GCM claims are resolved (negative on both models). The Llama-3-8B synonym probe is FULLY RETRACTED (see below).
+
+**FINAL UPDATE — 2026-03-22 23:17 UTC (v2 pipeline complete):**
+
+v2 re-extraction with `--use_chat_template=true` (bug fixed: `enable_thinking=False` now conditional on Qwen3 in `05_run_inference.py` line 321) gives:
+- Synonym AUC at best layer (L31): **0.489** — below the TF-IDF baseline of 0.569
+- P1 ablation: baseline probe score 0.589, total positive drop 0.0 — null result again
+- P2 cosine: mean 0.283 (consistent with v1: 0.302)
+- P3 steering: alpha=1.0 → delta=+0.133, KL=0.027; alpha=2.0 → delta=+0.238, KL=0.161
+
+The synonym finding does not replicate under any extraction configuration (v1: 0.574 marginal; v2: 0.489 below baseline). Original 0.754 was config-dependent and unreproducible. **Project has ZERO confirmed positive representational interpretability findings.**
 
 ---
 
-*Reviewed all scripts: 04_build_game_scenarios.py, 05_run_inference.py, 06_train_probes.py, 07_text_baselines.py, 09_generate_whitespace_dataset.py, 10_generate_suffix_marker_dataset.py, 01_gcm_filter_heads_hf.py, 02_gcm_steer.py, 03_gcm_permutation_null.py, 04_gcm_steer_hf.py, 13_layerwise_ablation.py, 14_probe_direction_analysis.py, 15_mean_diff_heads.py, 16_probe_steer.py. All result JSONs verified against actual data on disk. Last updated: 2026-03-22 ~23h30 UTC (Llama re-extraction chain complete: synonym RETRACTED — fails replication at AUC 0.574 vs previous 0.755; P1 ablation uninterpretable, P3 steering tautological, P4 mean-diff confirms suffix_marker surface artifact. Project has zero confirmed positive interpretability findings).*
+*Reviewed all scripts: 04_build_game_scenarios.py, 05_run_inference.py, 06_train_probes.py, 07_text_baselines.py, 09_generate_whitespace_dataset.py, 10_generate_suffix_marker_dataset.py, 01_gcm_filter_heads_hf.py, 02_gcm_steer.py, 03_gcm_permutation_null.py, 04_gcm_steer_hf.py, 13_layerwise_ablation.py, 14_probe_direction_analysis.py, 15_mean_diff_heads.py, 16_probe_steer.py. All result JSONs verified against actual data on disk. Final update: 2026-03-22 23:25 UTC — v2 pipeline complete, synonym FULLY RETRACTED, zero positive findings confirmed.*
