@@ -29,13 +29,14 @@ PYTHONUNBUFFERED=1 python3 scripts/05_run_inference.py \
     --dataset data/combined_dataset.jsonl \
     --layers all --token_position last \
     --batch_size 16 \
-    --run_name stego_detection_reextract \
+    --use_chat_template \
+    --run_name stego_detection_reextract_v2 \
     2>&1 | tee /tmp/p0_inference.log
 log "P0 inference DONE"
 status "P0 inference" "COMPLETE"
 
 # Detect run dir
-RUN_DIR=$(ls -td "$REPO_ROOT/data/Meta-Llama-3-8B-Instruct/runs/"*stego_detection_reextract 2>/dev/null | head -1)
+RUN_DIR=$(ls -td "$REPO_ROOT/data/Meta-Llama-3-8B-Instruct/runs/"*stego_detection_reextract_v2 2>/dev/null | head -1)
 if [ -z "$RUN_DIR" ]; then
     log "ERROR: Could not find stego_detection_reextract run dir"
     status "P0 probe training" "FAILED — run dir not found"
@@ -95,15 +96,23 @@ PYTHONUNBUFFERED=1 python3 scripts/16_probe_steer.py \
     --run_dir "$RUN_DIR" \
     --model meta-llama/Meta-Llama-3-8B-Instruct \
     --dataset data/combined_dataset.jsonl \
-    --alpha 5.0 \
-    2>&1 | tee /tmp/p3_steer.log
-log "P3 DONE"
-status "P3 steering" "COMPLETE — see $RUN_DIR/probe_results_stego_vs_clean/p3_probe_steer_results.json"
+    --alpha 1.0 \
+    2>&1 | tee /tmp/p3_steer_alpha1.log
+log "P3 alpha=1.0 DONE"
+
+PYTHONUNBUFFERED=1 python3 scripts/16_probe_steer.py \
+    --run_dir "$RUN_DIR" \
+    --model meta-llama/Meta-Llama-3-8B-Instruct \
+    --dataset data/combined_dataset.jsonl \
+    --alpha 2.0 \
+    2>&1 | tee /tmp/p3_steer_alpha2.log
+log "P3 alpha=2.0 DONE"
+status "P3 steering" "COMPLETE (alpha=1.0 and 2.0) — see $RUN_DIR/probe_results_stego_vs_clean/p3_probe_steer_results.json"
 
 # ─── Append run note ──────────────────────────────────────────────────────────
 RELATIVE_RUN=$(realpath --relative-to="$REPO_ROOT" "$RUN_DIR")
 bash scripts/append_run_note.sh "$RELATIVE_RUN" \
-    "stego_detection_reextract: Llama-3-8B all-layer activations + probes + P1 ablation + P2 cosine + P3 steering"
+    "stego_detection_reextract_v2: Llama-3-8B chat_template activations + probes + P1 ablation + P2 cosine + P3 steering (alpha=1.0,2.0)"
 
 log "=== ALL STEPS COMPLETE ==="
 status "CHAIN DONE" "All steps complete. Teammates: start from P1/P2/P3 results in $RUN_DIR"

@@ -318,7 +318,10 @@ def run_stego_detection(model, tokenizer, dataset_path):
         for ex in examples:
             messages = [{"role": "user", "content": ex.get("prompt", "")},
                         {"role": "assistant", "content": ex["response"]}]
-            formatted = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False, enable_thinking=False)
+            tmpl_kwargs = {"tokenize": False, "add_generation_prompt": False}
+            if "Qwen3" in (args.model or ""):
+                tmpl_kwargs["enable_thinking"] = False
+            formatted = tokenizer.apply_chat_template(messages, **tmpl_kwargs)
             formatted_texts.append(formatted)
         texts = formatted_texts
         print(f"Applied chat template to {len(texts)} texts")

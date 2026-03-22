@@ -20,7 +20,7 @@ SESSIONS=$(tmux ls 2>/dev/null | grep -E "overnight|p4_cpu" || echo "no sessions
 echo "tmux: $SESSIONS"
 
 # Chain progress
-for LOG_FILE in /tmp/overnight_chain.log /tmp/p0_inference.log /tmp/p0_probes.log /tmp/p1_ablation.log /tmp/p2_probe_direction.log /tmp/p3_steer.log /tmp/p4_mean_diff.log; do
+for LOG_FILE in /tmp/overnight_chain.log /tmp/p0_inference.log /tmp/p0_probes.log /tmp/p1_ablation.log /tmp/p2_probe_direction.log /tmp/p3_steer_alpha1.log /tmp/p3_steer_alpha2.log /tmp/p4_mean_diff.log; do
     if [ -f "$LOG_FILE" ]; then
         LABEL=$(basename "$LOG_FILE" .log)
         TAIL=$(tail -1 "$LOG_FILE" 2>/dev/null)
@@ -29,7 +29,7 @@ for LOG_FILE in /tmp/overnight_chain.log /tmp/p0_inference.log /tmp/p0_probes.lo
 done
 
 # Check completed result files
-RUN_DIR=$(ls -td "$REPO_ROOT/data/Meta-Llama-3-8B-Instruct/runs/"*stego_detection_reextract 2>/dev/null | head -1)
+RUN_DIR=$(ls -td "$REPO_ROOT/data/Meta-Llama-3-8B-Instruct/runs/"*stego_detection_reextract_v2 2>/dev/null | head -1)
 if [ -n "$RUN_DIR" ]; then
     echo "Run dir found: $RUN_DIR"
     for F in \
