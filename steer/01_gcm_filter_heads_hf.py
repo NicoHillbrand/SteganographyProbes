@@ -59,9 +59,10 @@ def format_stego_prompt(tokenizer, entry):
         {"role": "system", "content": entry["system_prompt"]},
         {"role": "user", "content": f"Context from previous assistant:\n{entry['input_text']}\n\nTask: {entry['task']}"},
     ]
-    return tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
-    )
+    kwargs = {"tokenize": False, "add_generation_prompt": True}
+    if "Qwen3" in config.get("MODEL_ID", ""):
+        kwargs["enable_thinking"] = False
+    return tokenizer.apply_chat_template(messages, **kwargs)
 
 
 def get_attn_layers(model):
@@ -82,7 +83,8 @@ def get_stego_knockout_attribution(model, tokenizer, dataset_pairs, k, layer_ind
     """
     n_layers = model.config.num_hidden_layers
     n_heads = model.config.num_attention_heads
-    head_dim = model.config.head_dim
+    head_dim = getattr(model.config, "head_dim",
+                       model.config.hidden_size // model.config.num_attention_heads)
     
     if layer_indices is None:
         layer_indices = list(range(n_layers))
@@ -130,40 +132,40 @@ def get_stego_knockout_attribution(model, tokenizer, dataset_pairs, k, layer_ind
         gc.collect()
         torch.cuda.empty_cache()
 
-        # --- Stego forward+backward in single-layer passes ---
-        # For large models, even chunked backward is too expensive.
-        # We do one forward+backward per layer, using torch.autograd.grad
-        # to only compute gradients w.r.t. the single hooked tensor.
+        # --- Stego forward+backward: hook all layers in one pass ---
+        # For small models (e.g. Llama-3-8B) with ample VRAM, hook all layers
+        # simultaneously and compute all gradients in a single backward pass.
+        # This avoids 32 redundant forward passes per pair.
         stego_prompt = format_stego_prompt(tokenizer, pair["stego"])
         stego_tokens = tokenizer(stego_prompt, return_tensors="pt").to(model.device)
 
+        z_holders = {}
+        hooks = []
         for l in layer_indices:
-            z_holder = {}
-
             def make_oproj_pre_hook_grad(layer_idx):
                 def hook_fn(module, args):
                     inp = args[0]
                     z = inp.reshape(inp.shape[0], inp.shape[1], n_heads, head_dim)
                     z_grad = z.detach().clone().requires_grad_(True)
-                    z_holder["z"] = z_grad
+                    z_holders[layer_idx] = z_grad
                     return (z_grad.reshape(inp.shape),)
                 return hook_fn
-
             h = attn_layers[l].o_proj.register_forward_pre_hook(
                 make_oproj_pre_hook_grad(l), with_kwargs=False
             )
+            hooks.append(h)
 
-            with torch.enable_grad():
-                stego_out = model(**stego_tokens)
-                stego_log_probs = torch.log_softmax(stego_out.logits[0, -1, :], dim=-1)
-                log_prob_diff = stego_log_probs[target_id] - clean_lp_target
+        with torch.enable_grad():
+            stego_out = model(**stego_tokens)
+            stego_log_probs = torch.log_softmax(stego_out.logits[0, -1, :], dim=-1)
+            log_prob_diff = stego_log_probs[target_id] - clean_lp_target
 
-                if "z" in z_holder:
-                    # Use autograd.grad to only compute gradient for this one tensor
-                    (grad,) = torch.autograd.grad(
-                        log_prob_diff, z_holder["z"], retain_graph=False
-                    )
-                    with torch.no_grad():
+            hooked_layers = [l for l in layer_indices if l in z_holders]
+            if hooked_layers:
+                z_list = [z_holders[l] for l in hooked_layers]
+                grads = torch.autograd.grad(log_prob_diff, z_list, retain_graph=False)
+                with torch.no_grad():
+                    for l, grad in zip(hooked_layers, grads):
                         z = clean_z[l].to(grad.device) if l in clean_z else None
                         if z is not None:
                             g_mean = grad.mean(dim=1)
@@ -171,10 +173,11 @@ def get_stego_knockout_attribution(model, tokenizer, dataset_pairs, k, layer_ind
                             ie_per_head = (g_mean * z_mean).sum(dim=-1).squeeze(0)
                             total_ie_scores[l] += ie_per_head.abs().cpu()
 
+        for h in hooks:
             h.remove()
-            del z_holder, stego_out, stego_log_probs, log_prob_diff
-            gc.collect()
-            torch.cuda.empty_cache()
+        del z_holders, stego_out, stego_log_probs, log_prob_diff
+        gc.collect()
+        torch.cuda.empty_cache()
 
         del clean_z, clean_tokens, stego_tokens
         gc.collect()

@@ -1,0 +1,14 @@
+{
+    "args": {
+        "dataset_tag": "synonym",
+        "num_samples": 50,
+        "k_pct": 10,
+        "seed": 42,
+        "model_id": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "cache_dir": "/home/ubuntu/.cache/huggingface/hub"
+    },
+    "git_sha": "718e79bb193c319d45aa78bd0e8bf44002fe13e0",
+    "timestamp": "2026-03-22T22:04:04.428222+00:00",
+    "python_version": "3.12.3 (main, Jan 22 2026, 20:57:42) [GCC 13.3.0]",
+    "torch_version": "2.7.0"
+}
