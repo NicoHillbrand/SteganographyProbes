@@ -107,6 +107,15 @@ parser.add_argument(
     help="Save trained probe and scaler objects to <output_dir>/trained_probes/",
 )
 parser.add_argument(
+    "--use_ground_truth_labels",
+    action="store_true",
+    default=False,
+    help="For scenario tasks, use the ground-truth is_stego labels from labels.npy "
+         "instead of observed keyword_present from responses.jsonl. "
+         "This trains probes on stego-presence (balanced 1000/1000) rather than "
+         "behavioral compliance.",
+)
+parser.add_argument(
     "--dataset_path",
     type=str,
     default=None,
@@ -610,10 +619,12 @@ def main():
             filtered_ids = [eid for eid, keep in zip(example_ids, keep_mask) if keep]
             meta["ids"] = filtered_ids
 
-            if id_to_observed:
+            if id_to_observed and not args.use_ground_truth_labels:
                 labels = np.array(
                     [id_to_observed.get(eid, labels[idx]) for idx, eid in enumerate(filtered_ids)]
                 )
+            elif args.use_ground_truth_labels:
+                print("Using ground-truth is_stego labels (ignoring observed keyword_present)")
 
             print(f"Game scenarios: kept {len(labels)}/{n_before} (misaligned only)")
 
