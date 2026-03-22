@@ -90,12 +90,16 @@ def format_stego_prompt(tokenizer, entry):
     )
 
 # %%
+
+
 def get_stego_knockout_attribution(
     model: HookedTransformer,
     dataset_pairs: list, 
     k: float,
     layer_indices: list = None
 ):
+    
+    # Formula: IE = ∇z log(P_steg(attack) / P_clean(attack)) * z_clean
     model.cfg.use_attn_result = True 
     n_layers = model.cfg.n_layers
     n_heads = model.cfg.n_heads
@@ -110,8 +114,12 @@ def get_stego_knockout_attribution(
 
     for pair in tqdm(dataset_pairs, desc="Computing IE via Hooks"):
         stego_entry = pair['stego']
-        prompt = format_stego_prompt(model.tokenizer, stego_entry)
-        tokens = model.to_tokens(prompt)
+        stego_prompt = format_stego_prompt(model.tokenizer, stego_entry)
+        stego_tokens = model.to_tokens(stego_prompt)
+
+        clean_entry = pair['clean']
+        clean_prompt = format_stego_prompt(model.tokenizer, clean_entry)
+        clean_tokens = model.to_tokens(clean_prompt)
         
         # Dictionary to store gradients for THIS specific forward/backward pass
         current_grads = {}
@@ -124,21 +132,28 @@ def get_stego_knockout_attribution(
         def fwd_hook_fn(act, hook):
             current_acts[hook.name] = act.detach()
             return act
+        
+        fwd_hooks = [(f"blocks.{l}.attn.hook_z", fwd_hook_fn) for l in layer_indices]
+        model.run_with_hooks(clean_tokens, fwd_hooks=fwd_hooks)
 
         # Add hooks
         for l in layer_indices:
             name = f"blocks.{l}.attn.hook_z"
-            model.add_hook(name, fwd_hook_fn, dir="fwd")
             model.add_hook(name, bwd_hook_fn, dir="bwd")
 
         # 3. Forward Pass
         model.zero_grad()
-        logits = model(tokens)
+
+        stego_logits = model(stego_tokens)
+        stego_log_probs = torch.log_softmax(stego_logits[0, -1, :], dim=-1)
+
         
-        # 4. Compute Log-Prob Ratio and Backward
-        log_probs = torch.log_softmax(logits[0, -1, :], dim=-1)
-        log_prob_diff = log_probs[target_id] - log_probs[neutral_id]
-        
+        with torch.no_grad():
+            clean_logits = model(clean_tokens)
+            clean_log_probs = torch.log_softmax(clean_logits[0, -1, :], dim=-1)
+
+
+        log_prob_diff = stego_log_probs[target_id] - clean_log_probs[target_id]
         log_prob_diff.backward()
 
         # 5. Calculate IE and Clean Up
@@ -149,7 +164,13 @@ def get_stego_knockout_attribution(
                 z = current_acts[name]  # [batch, seq, head, d_head]
                 
                 # IE = (grad * z).sum() over seq and d_head
-                ie_per_head = (g * z).sum(dim=(0, 1, 3))
+                g_mean = g.mean(dim=1) 
+                z_mean = z.mean(dim=1)
+                
+                # Step 2: Compute IE = (grad_mean * z_mean).sum() over d_head
+                # Resulting shape: [batch, head] -> .squeeze(0) -> [n_heads]
+                # This aligns with the IE = ∇z * z logic for causal mediation
+                ie_per_head = (g_mean * z_mean).sum(dim=-1).squeeze(0)
                 total_ie_scores[l] += ie_per_head.abs()
         
         # Remove hooks to avoid memory leaks and overhead for next iteration
