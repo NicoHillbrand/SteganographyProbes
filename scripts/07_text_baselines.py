@@ -444,6 +444,41 @@ def main():
 
     print()
     print("=" * 60)
+    print("Per-method breakdown (TF-IDF char n-grams)")
+    print("=" * 60)
+
+    method_tfidf_results = {}
+    for method in sorted(set(methods)):
+        if method == "clean":
+            continue
+
+        mask = np.array([(m == method or m == "clean") for m in methods])
+        texts_method = [t for t, included in zip(texts, mask) if included]
+        y_method_tfidf = labels[mask]
+        groups_method_tfidf = groups[mask] if groups is not None else None
+
+        if len(np.unique(y_method_tfidf)) < 2:
+            continue
+
+        summary = run_seeded_suite(
+            train_tfidf_baseline, texts_method, y_method_tfidf, args.test_size, groups_method_tfidf
+        )
+        if summary is None:
+            continue
+
+        print(
+            f"  {method:20s}: auc={summary['mean_auc_roc']:.3f}  "
+            f"ap={summary['mean_average_precision']:.3f}  "
+            f"thr_f1={summary['mean_threshold_f1']:.3f}  "
+            f"(n={int(mask.sum())})"
+        )
+        method_tfidf_results[method] = {
+            "n_examples": int(mask.sum()),
+            **summary,
+        }
+
+    print()
+    print("=" * 60)
     print("Method-subset breakdown (char features)")
     print("=" * 60)
     subset_results = evaluate_subset_results(X_char, labels, methods, groups)
@@ -469,6 +504,7 @@ def main():
         "baselines": {
             **results,
             "per_method_char": method_results,
+            "per_method_tfidf": method_tfidf_results,
             "subset_char": subset_results,
         },
     }

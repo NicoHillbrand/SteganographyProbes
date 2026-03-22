@@ -42,7 +42,7 @@ data/Qwen3-32B/runs/
 │       ├── probe_results_stego_vs_clean.json # is_stego labels (1000/1000), 5 methods
 │       └── trained_probes/
 │
-└── 2026-03-22_prefixsuffix_varied/          # COMPLETE — inference + keyword probes done; stego_vs_clean IN PROGRESS
+└── 2026-03-22_prefixsuffix_varied/          # COMPLETE — all probes done
     ├── config.json
     ├── activations/
     │   ├── metadata.json
@@ -50,8 +50,9 @@ data/Qwen3-32B/runs/
     │   ├── labels.npy                       # ground-truth is_stego (2500/2500)
     │   └── layer_00.npy ... layer_63.npy    # activations (5000 x 5120) per layer
     ├── probe_results/
-    │   ├── game_scenarios_probe_results.json # keyword probes: best L56 AUC=0.790 (194/4806, imbalanced)
-    │   └── trained_probes/                  # keyword probe weights saved
+    │   ├── game_scenarios_probe_results.json          # keyword probes: best L56 AUC=0.790
+    │   ├── probe_results_stego_vs_clean.json          # stego_vs_clean: best L46 AUC=0.942
+    │   └── trained_probes/
     └── text_baselines/
         └── text_baseline_results_stego_vs_clean.json  # char=0.624, tfidf=0.998; inline_keyword char=0.873
 ```
@@ -142,7 +143,7 @@ Text baselines now available for all datasets. See `<run_dir>/text_baselines/tex
 | whitespace | L5 | 0.826 | **1.000** (char) | ~0 | Char stats (newline/tab counts) fully explain probe signal |
 | game_scenarios_v2 (pooled) | L48 | 0.847 | 0.866 | ~0 pooled | Pooled signal is dominated by easy methods |
 | **game_scenarios_v2 synonym** | **L48** | **0.868** | **0.620** | **+0.248** | **Not surface-explainable — cross-model replication confirmed** |
-| prefixsuffix_varied | -- | IN PROGRESS | 0.624 (char) / 0.998 (tfidf) | -- | inline_keyword char=0.873 — probe delta likely small |
+| prefixsuffix_varied (pooled) | L46 | 0.942 | 0.624 (char) / 0.998 (tfidf) | ~0 vs tfidf | Pooled tfidf trivially detects markers; see per-method below |
 
 **game_scenarios_v2 per-method breakdown (best layer L48):**
 
@@ -154,7 +155,17 @@ Text baselines now available for all datasets. See `<run_dir>/text_baselines/tex
 | whitespace | 0.884 | 1.000 | ~0 | Trivial formatting |
 | **synonym** | **0.868** | **0.620** | **+0.248** | **Genuine representational signal** |
 
-> **Cross-model replication confirmed:** synonym delta +0.248 (Qwen3-32B) vs +0.256 (Llama-3-8B). Nearly identical despite 4x scale difference and near-zero behavioral compliance on Qwen3-32B.
+> **Cross-model replication confirmed (vs char features):** synonym delta +0.248 (Qwen3-32B) vs +0.256 (Llama-3-8B). Nearly identical despite 4x scale difference and near-zero behavioral compliance on Qwen3-32B. **Caveat:** synonym-specific tfidf baseline is missing -- see [audit Concern 8](pipeline-audit-2026-03-22.md).
+
+**prefixsuffix_varied per-method breakdown (best layer L46):**
+
+| Method | Probe AUC | Char baseline | TF-IDF baseline | Probe - char delta | Interpretation |
+|---|---|---|---|---|---|
+| inline_keyword | 0.974 | 0.873 | 0.998 (pooled) | +0.101 | Moderate delta vs char; tfidf likely explains most signal |
+| prefix_marker_varied | 0.951 | 0.527 | 0.998 (pooled) | +0.424 | Large delta vs char, but tfidf (pooled) detects marker n-grams |
+| suffix_marker_varied | 0.928 | 0.526 | 0.998 (pooled) | +0.402 | Same pattern as prefix |
+
+> All 3 methods are surface markers. The char baseline cannot detect marker tokens (AUC ~0.53 for prefix/suffix), but tfidf trivially can (pooled 0.998). The per-method deltas vs char features are large but misleading -- tfidf would close the gap. inline_keyword has the smallest delta (+0.101) because char features already detect it well (AUC 0.873, likely from length/punct changes from inserted keywords).
 
 ### Qwen3-32B keyword probes
 
@@ -163,7 +174,7 @@ Text baselines now available for all datasets. See `<run_dir>/text_baselines/tex
 | suffix_marker | L19 | 0.861 | 0.274 | 49/2000 |
 | whitespace | L43 | 0.849 | 0.040 | 2/2000 (degenerate) |
 | game_scenarios_v2 | -- | -- | -- | 7/2000 (degenerate, skip) |
-| prefixsuffix_varied | L56 | 0.790 | 0.209 | 194/5000 (imbalanced; stego_vs_clean probes in progress) |
+| prefixsuffix_varied | L56 | 0.790 | 0.209 | 194/5000 (imbalanced) |
 
 ### Llama-3-8B headline (synonym presence detection)
 
@@ -283,29 +294,37 @@ Each `probe_results*.json` contains:
 
 ---
 
-## 5. Experiment Priority Queue (Updated 2026-03-22 ~16h00 UTC)
+## 5. Experiment Priority Queue (Updated 2026-03-22 ~18h30 UTC)
 
-Ordered by **information value per unit time**. See [pipeline-audit-2026-03-22.md](pipeline-audit-2026-03-22.md) for rationale.
+Ordered by **information value per unit time** per the golden rule. Evidence-based justification for each item.
 
-| # | Experiment | Resource | Time | Status | Decision value | What result changes |
+| # | Experiment | Resource | Time | Status | Decision value | Justification |
 |---|---|---|---|---|---|---|
-| ~~**1**~~ | ~~Text baselines on all 4 game-scenario datasets~~ | ~~CPU~~ | ~~30m~~ | **DONE.** Synonym delta +0.248 — cross-model replication confirmed. | -- | -- |
-| ~~**2**~~ | ~~Train probes on prefixsuffix_varied (keyword)~~ | ~~CPU~~ | ~~1h~~ | **DONE.** Best L56 AUC=0.790, 194/4806 imbalanced — expected surface signal. | -- | -- |
-| **2b** | Train stego_vs_clean probes on prefixsuffix_varied | CPU | ~30m | **IN PROGRESS** (gpu-chain window). | LOW: all 3 methods are surface markers; inline_keyword delta vs char baseline (0.873) is the interesting number. | -- |
-| **3** | Run benign_keyword_suffix_marker inference + probes | GPU | ~1h | **QUEUED** (gpu-benign window, fires after 2b). | MEDIUM: does the `+++` probe fire when scheming context is absent? Separates marker detection from scheming representation. | If probe AUC drops significantly vs suffix_marker (scheming): the L49 probe encodes scheming context, not just marker presence. |
-| **4** | GCM permutation null on suffix_marker | GPU | ~1h | NOT STARTED. Queue after benign. | MEDIUM: 44% head overlap with whitespace undermines specificity. | If permuted IE ≈ real IE: GCM heads are not stego-specific. |
-| ~~5~~ | ~~GCM steering intervention~~ | ~~GPU~~ | ~~1h~~ | **BLOCKED** on #4 + must regenerate heads with fixed prompt template first. | -- | -- |
-| ~~6~~ | ~~Qwen3-14B anything~~ | ~~GPU~~ | ~~hours~~ | **DEPRIORITIZED.** Finish interpreting 32B results first. | -- | -- |
+| **1** | **Synonym-specific tfidf baseline** (both models) | CPU | 10-15m | **NOT STARTED — CRITICAL GAP** | **VERY HIGH:** directly validates/invalidates headline cross-model replication claim | The current delta (+0.248) is computed vs char features only (8 hand-crafted stats: length, tab_count, etc.). These **cannot** detect word-level substitutions by construction. Char n-gram tfidf **might** detect synonym changes through bigram/trigram frequency shifts. No synonym-specific tfidf exists anywhere (verified all 5 baseline JSONs). If tfidf < 0.6: claim is bulletproof. If > 0.8: claim collapses. This is the single highest-stakes, highest-uncertainty, cheapest-to-resolve crux. |
+| ~~**2**~~ | ~~Let prefixsuffix_varied stego_vs_clean probes finish~~ | ~~CPU~~ | -- | **DONE.** Best L46 AUC=0.942. inline_keyword 0.974 (char baseline 0.873, delta +0.101). All surface markers as expected. | -- | -- |
+| **3** | ~~Run benign_keyword_suffix_marker ("goodbye") inference~~ | GPU | ~15m | **QUEUED** in gpu-benign, fires after #2. **DEMOTED — see justification** | LOW (was MEDIUM) | Tests whether replacing "attack" with "goodbye" increases compliance on `+++` marker. Was interesting when suffix_marker probe was uncalibrated. Now: (a) tfidf=1.000 confirms probe detects literal `+++` token, not a higher-level scheming representation, so the probe question is moot; (b) prefixsuffix_varied already shows compliance varies 0.8%-12.2% across markers, demonstrating RLHF is marker/context-specific. Goodbye adds one data point (keyword-specific RLHF suppression) but doesn't change any conclusion. **If GPU is idle anyway, let it run -- but don't block anything on it.** |
+| ~~4~~ | ~~GCM permutation null on suffix_marker~~ | ~~GPU~~ | ~~1h~~ | **DEPRIORITIZED.** All existing GCM heads computed under wrong prompt template (now fixed). Full chain: regen heads + permutation null + steer = ~3h GPU. And it's about suffix_marker (confirmed surface artifact). | LOW | Would only be interesting if rerun on game_v2 for synonym, but N=200 synonym pairs is likely underpowered for GCM. Park until synonym sample size can be increased. |
+| ~~5~~ | ~~GCM steering intervention~~ | ~~GPU~~ | ~~1h~~ | **BLOCKED** on #4 + stale heads. | -- | -- |
+| ~~6~~ | ~~Qwen3-14B anything~~ | ~~GPU~~ | ~~hours~~ | **DEPRIORITIZED.** Two models with consistent synonym deltas (+0.248 and +0.256) already demonstrate cross-model generality. Third model changes scale without resolving any crux. | -- | -- |
 
-### Completed This Session
+### What was cut and why (2026-03-22 ~18h30 UTC)
 
-- [x] Qwen3-32B game_scenarios_v2 inference (2000 examples, 64 layers) — behavioral null: 3/1000 stego, 4/1000 clean
-- [x] Qwen3-32B game_v2 keyword probes — degenerate (7 positives), skip
-- [x] Qwen3-32B game_v2 stego_vs_clean probes — AUC 0.847 at L48; **synonym 0.868**
-- [x] Qwen3-32B suffix_marker stego_vs_clean probes — AUC 0.929 at L49 (surface artifact — tfidf baseline 1.000)
-- [x] Qwen3-32B whitespace stego_vs_clean probes — AUC 0.826 at L5 (surface artifact — char baseline 1.000)
-- [x] Qwen3-32B prefixsuffix_varied inference (5000 examples, 64 layers) — 194/2500 stego kw, 0/2500 clean
-- [x] Qwen3-32B prefixsuffix_varied keyword probes — best L56 AUC=0.790 (194 positives, imbalanced)
-- [x] Pipeline audit — 7 methodological concerns documented; GCM template and metadata bug fixed
-- [x] **Text baselines on all 4 game-scenario datasets** — synonym cross-model replication confirmed (delta +0.248 ≈ Llama +0.256)
+**Goodbye dataset demoted from #3 (MEDIUM) to #3 (LOW):** The original motivation was "does the `+++` probe fire when scheming context is absent? Separates marker detection from scheming representation." Text baselines resolved this: tfidf=1.000 on suffix_marker means the probe IS detecting the marker token, not a scheming representation. The behavioral question (does "goodbye" get higher compliance than "attack"?) is interesting but adds only a discussion-section paragraph. The varied compliance rates from prefixsuffix_varied (0.8%-12.2%) already demonstrate RLHF filtering is context/marker-specific. If GPU is idle, run it for completeness; don't prioritize it over analysis work.
+
+**GCM permutation null demoted from #4 (MEDIUM) to DEPRIORITIZED:** The GCM head lists are stale (wrong prompt template). To get valid GCM results requires: (1) regenerate heads with fixed template (~1h GPU), (2) run permutation null (~1h GPU), (3) then steer (~1h GPU). That's 3h GPU for a feature (suffix_marker GCM) about a surface artifact. The interesting GCM target would be synonym on game_v2, but N=200 per method is probably too small for stable head attribution.
+
+### Completed This Session (chronological)
+
+### Completed This Session (chronological)
+
+- [x] Qwen3-32B game_scenarios_v2 inference (2000 examples, 64 layers) -- behavioral null: 3/1000 stego, 4/1000 clean
+- [x] Qwen3-32B game_v2 keyword probes -- degenerate (7 positives), skip
+- [x] Qwen3-32B game_v2 stego_vs_clean probes -- AUC 0.847 at L48; **synonym 0.868**
+- [x] Qwen3-32B suffix_marker stego_vs_clean probes -- AUC 0.929 at L49 (surface artifact -- tfidf baseline 1.000)
+- [x] Qwen3-32B whitespace stego_vs_clean probes -- AUC 0.826 at L5 (surface artifact -- char baseline 1.000)
+- [x] Qwen3-32B prefixsuffix_varied inference (5000 examples, 64 layers) -- 194/2500 stego kw, 0/2500 clean
+- [x] Qwen3-32B prefixsuffix_varied keyword probes -- best L56 AUC=0.790 (194 positives, imbalanced)
+- [x] Pipeline audit -- 7 methodological concerns documented; GCM template and metadata bug fixed
+- [x] **Text baselines on all 4 game-scenario datasets** -- synonym cross-model replication confirmed (delta +0.248 vs Llama +0.256)
 - [x] `07_text_baselines.py` adapted for game-scenario format (`--input_field`, `--label_field`, `--method_field`)
+- [x] Qwen3-32B prefixsuffix_varied stego_vs_clean probes -- AUC 0.942 at L46; inline_keyword 0.974, prefix_marker_varied 0.951, suffix_marker_varied 0.928 (all surface markers, tfidf=0.998)

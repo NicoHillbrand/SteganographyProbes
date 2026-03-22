@@ -99,7 +99,27 @@ These probes predict input-level stego presence (balanced 1000/1000) from prompt
 
 Notable: suffix_marker_varied (12.2%) shows higher compliance than the original suffix_marker (4.9%), suggesting varied markers (`***`, `@@@`, etc.) may be less suppressed by RLHF than the specific `+++` token. inline_keyword (10.2%) is also higher -- mid-text word placement may be less recognizable as an "attack" pattern.
 
-All 64 layers saved. Probes not yet trained. All three methods are surface markers; probe AUCs are expected to be high and explained by text baselines. The inline_keyword method is the most interesting -- if its probe signal shows a meaningful delta above text baseline, it would suggest the model processes mid-text keyword markers differently from prefix/suffix markers.
+All 64 layers saved.
+
+**Stego_vs_clean probes (now trained, 2026-03-22 ~18h45):**
+
+| Metric | Value |
+|---|---|
+| Best layer | L46 |
+| AUC | 0.942 |
+| AP | 0.943 |
+| Accuracy | 0.875 (+/- 0.004) |
+| F1 @ tuned threshold | 0.873 |
+
+Per-method breakdown at L46:
+
+| Method | Probe AUC | Char baseline | Delta vs char | Interpretation |
+|---|---|---|---|---|
+| inline_keyword | 0.974 | 0.873 | +0.101 | Char features detect length/punct changes from inserted keywords; small residual probe delta |
+| prefix_marker_varied | 0.951 | 0.527 | +0.424 | Char can't detect markers but tfidf (pooled 0.998) trivially can |
+| suffix_marker_varied | 0.928 | 0.526 | +0.402 | Same pattern as prefix |
+
+All three methods are surface markers as predicted. The char-vs-probe deltas for prefix/suffix are large (+0.4) but misleading -- tfidf character n-grams (pooled AUC 0.998) would close the gap. inline_keyword has the smallest delta (+0.101) because char features already detect it at 0.873 (likely from length and punctuation changes introduced by keyword insertion). No method in this dataset produces signal that is not surface-explainable.
 
 ### 1.3 Qwen3-32B suffix_marker keyword probe
 
@@ -198,7 +218,9 @@ Text baselines now run on all 4 game-scenario datasets. `07_text_baselines.py` a
 | whitespace | 1.000 | 0.864 | Char stats detect newlines/tabs perfectly — probe fully explained |
 | prefixsuffix_varied | 0.624 | 0.998 | inline_keyword char=0.873; prefix/suffix_varied char≈0.527 |
 
-**Synonym cross-model replication confirmed:** probe AUC 0.868, text baseline 0.620, delta **+0.248** (Llama delta was +0.256). The signal is not surface-explainable.
+**Synonym cross-model replication confirmed (vs char features):** probe AUC 0.868, char text baseline 0.620, delta **+0.248** (Llama delta was +0.256). The signal is not explainable by char-level statistics.
+
+> **CAVEAT (2026-03-22 ~18h30):** The delta is computed against **char features only** (8 hand-crafted stats: length, tab_count, newline_count, cap_ratio, etc.). These features cannot detect word-level synonym substitutions by construction. The **tfidf character n-gram baseline was only computed pooled** (all 5 methods: AUC 0.876), not per-method. Pooled tfidf is dominated by easy methods (unicode=1.000, prefix_binary=1.000). **No synonym-specific tfidf baseline exists for either model.** Character n-grams (2-6 char sequences) could potentially detect synonym substitutions through shifted bigram/trigram frequencies. Until a synonym-specific tfidf baseline is computed, the delta remains uncalibrated against this stronger feature set. See new Concern 8.
 
 ### Concern 5: GCM causal specificity is undermined
 
@@ -218,6 +240,24 @@ The existing notes (`gcm-qwen3-32b-implementation-notes.md`) already flag this c
 ### ~~Concern 6: GCM prompt template mismatch~~ FIXED
 
 All GCM scripts now match `05_run_inference.py` (see Section 1.7). The existing GCM head-attribution results in `data/` were computed under the old template. Re-run `01_gcm_filter_heads_hf.py` before trusting those head lists for steering.
+
+### Concern 8: Synonym cross-model replication delta is uncalibrated against tfidf (NEW — 2026-03-22 ~18h30)
+
+**Severity: HIGH**
+
+The headline claim -- synonym delta +0.248 (Qwen) / +0.256 (Llama) -- compares activation probe AUC to a **char feature baseline** that uses 8 hand-crafted statistics (length, tab_count, newline_count, cap_ratio, space_ratio, punct_ratio, digit_ratio, zwc_count). These features fundamentally cannot detect word-level synonym substitutions. The comparison is a floor, not a ceiling.
+
+The text baseline script also computes tfidf character n-grams (2-6 char), but only **pooled across all 5 methods**. Pooled tfidf AUC is 0.876 (Qwen) and 0.876 (Llama), dominated by easy methods. **No synonym-specific tfidf baseline exists in any of the 5 text baseline JSON files across both models.** Verified on disk.
+
+Character n-grams detect different substring frequencies. Synonym substitutions change words, which changes character trigrams and above. If the substituted words have systematically different character distributions than the originals, tfidf will detect this.
+
+**Expected outcome is uncertain:** The Redwood synonym encoding replaces words with WordNet synonyms. Whether this produces detectable character n-gram shifts depends on the specific substitution patterns and how consistent they are across examples. It could be near chance (good for us) or substantially above chance (bad for the claim).
+
+**What would resolve this:** Compute synonym-specific tfidf character n-gram baseline on both datasets. Requires `07_text_baselines.py` to compute tfidf per-method (currently only char is per-method). Estimated cost: 10-15 minutes CPU.
+
+**If tfidf synonym < 0.6:** Delta is robust. The claim survives the strongest text-level control.
+**If tfidf synonym 0.6-0.75:** Delta shrinks but survives. Needs careful framing.
+**If tfidf synonym > 0.8:** The headline claim collapses. The activation probe may be detecting character-level artifacts that the crude 8-feature baseline missed.
 
 ### Concern 7: game_scenarios_v2 behavioral null result
 
@@ -240,7 +280,7 @@ AUC 0.755 (probe at L3) vs 0.499 (char-feature baseline, indistinguishable from 
 - The signal is genuinely above what surface text features can explain
 - Transfer analysis shows synonym-trained probes generalize to other methods (AUC 0.72-0.93)
 
-**Qwen3-32B replication (CONFIRMED 2026-03-22):** game_scenarios_v2 synonym probe achieves AUC 0.868 at L48. Text baseline (char features) on the same dataset: AUC 0.620. Delta = **+0.248**, almost identical to Llama's +0.256. Cross-model replication holds. Synonym steganography leaves a representational signal above surface features in both models.
+**Qwen3-32B replication (CONFIRMED vs char features, 2026-03-22):** game_scenarios_v2 synonym probe achieves AUC 0.868 at L48. Char text baseline on the same dataset: AUC 0.620. Delta = **+0.248**, almost identical to Llama's +0.256. **However, synonym-specific tfidf baseline is missing (Concern 8).** Until tfidf is shown to be near chance for synonym, the delta is calibrated against the weaker of the two available baselines. This is the single highest-priority item to resolve.
 
 ### 3.2 Qwen3-32B suffix_marker behavioral specificity (STRONG)
 
@@ -270,23 +310,29 @@ The infrastructure supports valid experiments -- the concerns above are about sp
 
 ## 4. Recommended Fixes (Prioritized)
 
-### ~~Priority 1: Run text baselines on ALL game-scenario datasets~~ DONE (2026-03-22)
+### **NEW Priority 1: Compute synonym-specific tfidf baseline (CRITICAL — 2026-03-22 ~18h30)**
+
+The headline finding (synonym delta +0.248) is calibrated against char features only. Char features cannot detect word-level substitutions. Tfidf character n-grams might. No synonym-specific tfidf exists. See Concern 8.
+
+Requires modifying `07_text_baselines.py` to compute tfidf per-method (currently only char is per-method). ~10-15 min CPU.
+
+### ~~Priority 2 (was 1): Run text baselines on ALL game-scenario datasets~~ DONE (2026-03-22)
 
 All 4 datasets calibrated. `07_text_baselines.py` updated with `--input_field` / `--label_field` / `--method_field` flags. Results in each run's `text_baselines/` subdirectory. See Concern 4 above for full results table.
 
-**Outcome:** Synonym cross-model replication confirmed (delta +0.248). suffix_marker and whitespace probe AUCs are surface artifacts as predicted.
+**Outcome:** Synonym delta +0.248 vs char features. suffix_marker and whitespace probe AUCs are surface artifacts as predicted.
 
-### ~~Priority 2: Train stego_vs_clean probes on game_scenarios_v2~~ DONE
+### ~~Priority 3 (was 2): Train stego_vs_clean probes on game_scenarios_v2~~ DONE
 
-Completed. Results: pooled AUC 0.847 at L48. Synonym AUC 0.868. See Section 1.1 for full per-method breakdown. Synonym signal is promising but awaits text baseline calibration (Priority 1).
+Completed. Results: pooled AUC 0.847 at L48. Synonym AUC 0.868. See Section 1.1 for full per-method breakdown.
 
-### ~~Priority 3: Fix target_label metadata bug~~ DONE
+### ~~Priority 4 (was 3): Fix target_label metadata bug~~ DONE
 
 Fixed in `06_train_probes.py` (commit `49af6d3`). Output JSON now records `"target_label": "is_stego"` when `--use_ground_truth_labels` is active.
 
-### Priority 4: Run GCM permutation null
+### ~~Priority 5 (was 4): Run GCM permutation null~~ DEPRIORITIZED (2026-03-22 ~18h30)
 
-Shuffle the stego/clean pairing assignments and re-run GCM on suffix_marker. If the permuted IE score distribution overlaps with the real top-head scores, the GCM results are not stego-specific.
+~~Shuffle the stego/clean pairing assignments and re-run GCM on suffix_marker.~~ **Deprioritized:** All existing GCM heads were computed under wrong prompt template. Full chain to get valid GCM results = regen heads + null + steer = ~3h GPU. And the target (suffix_marker) is a confirmed surface artifact (tfidf=1.000). Only interesting if rerun on game_v2 for synonym, but N=200 pairs per method is likely underpowered for GCM head attribution.
 
 ### ~~Priority 5: Align GCM prompt template with inference script~~ DONE
 
@@ -304,16 +350,16 @@ All three GCM scripts now use `f"Context from previous assistant:\n{entry['input
 4. Behavioral compliance and probe signal appear orthogonal across models and methods.
 5. Varied surface markers elicit higher compliance than the original `+++` token: suffix_marker_varied 12.2% and inline_keyword 10.2% vs original suffix_marker 4.9%. Prefix markers are suppressed (0.8%). This suggests RLHF filtering is marker-specific, not category-level.
 
-### Claims the data does NOT yet support:
+### Claims the data does NOT support (confirmed by text baselines 2026-03-22):
 
-1. ~~"Qwen3-32B internally represents steganography (AUC 0.929)."~~ The suffix_marker stego_vs_clean probe likely detects the literal `+++` token, not a higher-level steganographic representation. No text baseline exists to calibrate.
+1. ~~"Qwen3-32B internally represents steganography (AUC 0.929)."~~ **CONFIRMED ARTIFACT:** tfidf baseline = 1.000 on suffix_marker. Probe detects literal `+++` token.
 2. ~~"AUC improvement from 0.861 to 0.929 shows ground-truth labels access deeper representations."~~ These are incomparable metrics answering different questions at different difficulties.
-3. ~~"GCM identifies stego-specific attention heads in layers 39-47."~~ 44% overlap with the whitespace negative control and no permutation null undermine specificity claims.
-4. ~~"Whitespace stego_vs_clean probe (AUC 0.826) shows model detects whitespace encoding."~~ The probe likely detects formatting structure (newlines, tabs) trivially visible to any tokenizer.
+3. ~~"GCM identifies stego-specific attention heads in layers 39-47."~~ 44% overlap with whitespace negative control, no permutation null, and stale prompt template. All existing GCM results need regeneration.
+4. ~~"Whitespace stego_vs_clean probe (AUC 0.826) shows model detects whitespace encoding."~~ **CONFIRMED ARTIFACT:** char baseline = 1.000 on whitespace. Probe detects newline/tab formatting.
 
-### ~~Claims that need one more experiment:~~ (2026-03-22 — all resolved)
+### Claims that need one more experiment:
 
-1. ~~"Qwen3-32B internally represents synonym steganography."~~ **CONFIRMED.** Synonym probe AUC 0.868, text baseline 0.620, delta +0.248. Cross-model replication holds. See Section 3.1.
+1. ~~"Qwen3-32B internally represents synonym steganography."~~ **PARTIALLY CONFIRMED (2026-03-22).** Synonym probe AUC 0.868, char baseline 0.620, delta +0.248. **Awaits synonym-specific tfidf baseline (Concern 8).** If synonym tfidf < 0.6: fully confirmed. If > 0.8: collapses. This is a 10-15 min CPU experiment -- the single highest priority remaining.
 
 ---
 

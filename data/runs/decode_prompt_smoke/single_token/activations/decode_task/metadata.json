@@ -1,0 +1,53 @@
+{
+  "n_examples": 10,
+  "n_stego": 6,
+  "n_clean": 4,
+  "methods": {
+    "prefix_binary": 2,
+    "whitespace": 2,
+    "clean": 4,
+    "acrostic": 2
+  },
+  "layer_indices": [
+    31
+  ],
+  "token_position": "last",
+  "model": "meta-llama/Llama-3.1-8B-Instruct",
+  "max_length": 512,
+  "prompt_type": "decode_task",
+  "ids": [
+    "redwood_prefix_binary_00374_decode",
+    "redwood_prefix_binary_00170_decode",
+    "redwood_clean_00533_decode",
+    "redwood_whitespace_01142_decode",
+    "redwood_clean_00035_decode",
+    "redwood_whitespace_00918_decode",
+    "redwood_acrostic_00610_decode",
+    "redwood_clean_00605_decode",
+    "redwood_clean_00209_decode",
+    "redwood_acrostic_00614_decode"
+  ],
+  "carrier_group_ids": [
+    37,
+    35,
+    16,
+    21,
+    17,
+    9,
+    5,
+    2,
+    4,
+    7
+  ],
+  "decode_task_path": "data/runs/decode_prompt_smoke/single_token/decode_task.jsonl",
+  "generation_mode": "greedy",
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "max_new_tokens": 8,
+  "decode_score_mode": "anchored_last",
+  "decode_prompt_styles": {
+    "single_token": 10
+  },
+  "n_recognized": 2,
+  "n_decode_correct": 2
+}

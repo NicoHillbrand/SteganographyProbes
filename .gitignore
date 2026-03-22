@@ -1,12 +1,14 @@
 .factory/
-data/activations/
-data/runs/
-data/*/runs/
 data/generated/
 __pycache__/
 .ruff_cache/
 *.pyc
+
+# Large binary blobs — exclude from git; results (JSON/JSONL) are tracked
 *.npy
+*.joblib
+*.pt
+
 notes/scratchpad.md
 
 # Run analysis tracker (append-only, not committed — use for reviewer handoffs)
