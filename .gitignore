@@ -8,3 +8,6 @@ __pycache__/
 *.pyc
 *.npy
 notes/scratchpad.md
+
+# Run analysis tracker (append-only, not committed — use for reviewer handoffs)
+notes/runs_to_analyse.md
