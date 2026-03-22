@@ -1,0 +1,14 @@
+{
+    "args": {
+        "dataset_tag": "suffix_marker",
+        "num_samples": 50,
+        "k_pct": 10,
+        "seed": 42,
+        "model_id": "Qwen/Qwen3-32B",
+        "cache_dir": "/home/ubuntu/.cache/huggingface/hub"
+    },
+    "git_sha": "9577c929be965fff027e3cbc7ba2cbe373da01ad",
+    "timestamp": "2026-03-22T20:05:29.960390+00:00",
+    "python_version": "3.12.3 (main, Jan 22 2026, 20:57:42) [GCC 13.3.0]",
+    "torch_version": "2.7.0"
+}
