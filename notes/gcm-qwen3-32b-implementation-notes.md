@@ -86,8 +86,45 @@ The probe critique flagged that 33/49 keyword-positive responses come from one t
 
 ---
 
+## Results (2026-03-22)
+
+### Suffix marker top 5 heads
+| Layer | Head | IE Score |
+|-------|------|----------|
+| 42 | 7 | 0.1290 |
+| 47 | 2 | 0.1214 |
+| 45 | 3 | 0.1050 |
+| 42 | 30 | 0.1040 |
+| 43 | 61 | 0.1026 |
+
+Cluster: layers 39-47. Aligns with probe late-layer signal (layers 46-51 best precision/F1), not the AUC-inflated layer 19.
+
+### Whitespace top 5 heads (negative control)
+| Layer | Head | IE Score |
+|-------|------|----------|
+| 45 | 3 | 0.1265 |
+| 42 | 30 | 0.1145 |
+| 47 | 5 | 0.1024 |
+| 42 | 25 | 0.0897 |
+| 47 | 2 | 0.0842 |
+
+**Problem**: Heavy overlap with suffix_marker top heads (same layer band, several identical heads). This should NOT happen for a clean negative control — whitespace has no behavioral signal. Possible explanations:
+- GCM is picking up structural model properties (e.g., heads involved in any chat-template / instruction-following pathway), not stego-specific signal
+- The `abs()` accumulation inflates noise in the same high-variance heads across both datasets
+- The paired stego/clean difference in whitespace may still contain systematic prompt-format differences that these heads are sensitive to
+
+This needs investigation before interpreting suffix_marker heads as causally stego-specific.
+
+## Next Steps (not yet started)
+
+- [ ] Qwen3-14B GCM via transformer_lens (runner script ready: `steer/run_gcm_qwen3_14b.sh`)
+- [ ] Steering experiment (`02_gcm_steer.py`) — only if head overlap issue is resolved
+- [ ] Permutation null: shuffle stego/clean pairings to get baseline IE distribution
+- [ ] Task-stratified GCM: remove dominant task type, check if same heads survive
+
 ## Output Files
 
 - `data/Qwen3-32B_top10_stego_heads_suffix_marker.json` — top 10% heads by IE score
 - `data/Qwen3-32B_top10_stego_heads_whitespace.json` — negative control
 - `steer/01_gcm_filter_heads_hf.py` — HuggingFace-native GCM script
+- `steer/run_gcm_qwen3_14b.sh` — ready-to-run Qwen3-14B script (not yet executed)
