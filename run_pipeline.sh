@@ -14,7 +14,7 @@ LOG="/tmp/pipeline.log"
 # Model-specific settings
 case "$MODEL_SHORT" in
   Qwen3-32B)
-    BATCH_SIZE=2
+    BATCH_SIZE=16
     # IMPORTANT: 05_run_inference.py must have enable_thinking=False patched
     # in all apply_chat_template calls. Without this, the 256-token budget is
     # consumed by <think> reasoning blocks and inference fails mechanically.

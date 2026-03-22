@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 
+import joblib
 import numpy as np
 
 from decode_scoring import score_decode_response
@@ -100,6 +101,12 @@ parser.add_argument(
     help="Optional path to the decode-task JSONL used to recover per-example methods",
 )
 parser.add_argument(
+    "--save_probes",
+    action="store_true",
+    default=False,
+    help="Save trained probe and scaler objects to <output_dir>/trained_probes/",
+)
+parser.add_argument(
     "--dataset_path",
     type=str,
     default=None,
@@ -153,7 +160,7 @@ def select_threshold(y_true, y_prob):
     return float(thresholds[best_idx]), float(f1_scores[best_idx])
 
 
-def fit_and_score_probe(X_train, y_train, X_test, y_test, seed, class_weight):
+def fit_and_score_probe(X_train, y_train, X_test, y_test, seed, class_weight, save_dir=None):
     """Fit a logistic regression probe and return rich evaluation metrics."""
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import (
@@ -181,6 +188,13 @@ def fit_and_score_probe(X_train, y_train, X_test, y_test, seed, class_weight):
         class_weight=class_weight,
     )
     probe.fit(X_train, y_train)
+
+    if save_dir is not None:
+        os.makedirs(save_dir, exist_ok=True)
+        joblib.dump(
+            {"probe": probe, "scaler": scaler, "seed": seed, "class_weight": class_weight},
+            os.path.join(save_dir, f"seed_{seed}.joblib"),
+        )
 
     y_train_prob = probe.predict_proba(X_train)[:, 1]
     y_prob = probe.predict_proba(X_test)[:, 1]
@@ -218,7 +232,7 @@ def fit_and_score_probe(X_train, y_train, X_test, y_test, seed, class_weight):
     }
 
 
-def train_probe_at_layer(X, y, test_size, seed, groups=None):
+def train_probe_at_layer(X, y, test_size, seed, groups=None, save_dir=None):
     """Train a probe on one layer and return metrics."""
     class_weight = resolve_class_weight(y)
     train_idx, test_idx = split_indices(X, y, test_size, seed, groups)
@@ -229,6 +243,7 @@ def train_probe_at_layer(X, y, test_size, seed, groups=None):
         y[test_idx],
         seed,
         class_weight,
+        save_dir=save_dir,
     )
 
 
@@ -258,13 +273,13 @@ def summarize_seed_results(seed_results):
     return summary
 
 
-def run_probe_suite(X, y, groups=None):
+def run_probe_suite(X, y, groups=None, save_dir=None):
     """Run the full seeded evaluation suite on a feature matrix."""
     seed_results = []
     for seed in range(args.n_seeds):
         try:
             seed_results.append(
-                train_probe_at_layer(X, y, args.test_size, seed=seed, groups=groups)
+                train_probe_at_layer(X, y, args.test_size, seed=seed, groups=groups, save_dir=save_dir)
             )
         except ValueError as exc:
             print(f"  seed {seed} failed: {exc}")
@@ -715,7 +730,11 @@ def main():
         X = prepare_probe_features(X_raw, token_position, sequence_lengths)
         print(f"  Layer {layer_idx:2d}: shape {X_raw.shape} -> features {X.shape}", end="")
 
-        summary = run_probe_suite(X, labels, groups)
+        layer_save_dir = None
+        if args.save_probes:
+            layer_save_dir = os.path.join(output_dir, "trained_probes", f"layer_{layer_idx:02d}")
+
+        summary = run_probe_suite(X, labels, groups, save_dir=layer_save_dir)
         if summary is None:
             print("  -> all seeds failed, skipping")
             continue
