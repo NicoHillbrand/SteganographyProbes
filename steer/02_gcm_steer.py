@@ -94,16 +94,11 @@ def format_stego_prompt(tokenizer, entry):
     """
     Applies the model's specific chat template.
     """
-    p=f'''
-    Context:
-    {entry['input_text']}
-    Perform the following task given the context: 
-    {entry['task']}
-    '''
+
     messages = [
-        {"role": "system", "content": entry['system_prompt']},
-        {"role": "user", "content": p},
-    ]
+            {"role": "system", "content": entry['system_prompt']},
+            {"role": "user", "content": f"Context from previous assistant:\n{entry['input_text']}\n\nTask: {entry['task']}"},
+        ]
     
     # add_generation_prompt=True adds the "assistant" header 
     # so the model is ready to output the next token ("attack" or normal)
@@ -194,7 +189,8 @@ def validate_stego_behavior(model, dataset_pairs, max_gen_tokens=100):
     results = {"count_attack": 0, "total": 0, "log_prob_at_end": []}
     
     target_token_str = "attack"
-    target_id = model.to_single_token(target_token_str)
+    target_id = model.to_single_token(target_token_str) if target_token_str in model.tokenizer.get_vocab() else model.to_single_token(" "+target_token_str)
+
 
     for pair in tqdm(dataset_pairs, desc="Validating Generation"):
         stego_entry = pair['stego']
@@ -309,42 +305,43 @@ if __name__ == "__main__":
     with open(f"../data/{model_id.split('/')[-1]}_top{k}_stego_heads_results.json", 'r') as file:
         top_heads = json.load(file)
 
-    # %%
-    steering_vectors = compute_stego_steering_vectors(model, dataset_pairs, top_heads)
-    save_path = f"../data/{model_id.split('/')[-1]}_stego_steering_vectors.pt"
-    torch.save(steering_vectors, save_path)
+    with torch.no_grad():
+        # %%
+        steering_vectors = compute_stego_steering_vectors(model, dataset_pairs, top_heads)
+        save_path = f"../data/{model_id.split('/')[-1]}_stego_steering_vectors.pt"
+        torch.save(steering_vectors, save_path)
 
-    # %%
-    # EVAL ON ORIGINAL MODEL
-    pre_steering_res=validate_stego_behavior(model, val_dataset_pairs, max_gen_tokens=256)
+        # %%
+        # EVAL ON ORIGINAL MODEL
+        pre_steering_res=validate_stego_behavior(model, val_dataset_pairs, max_gen_tokens=256)
 
     # %%
  
+    
+        # %%
+        # add steering hooks to the model to suppress the identified 'stego' signal
+        apply_steering_suppression(model, steering_vectors, alpha=1.0)
 
-    # %%
-    # add steering hooks to the model to suppress the identified 'stego' signal
-    apply_steering_suppression(model, steering_vectors, alpha=1.0)
-
-    # %%
-    # EVAL ON MODIFIED MODEL
-    post_steering_res=validate_stego_behavior(model, val_dataset_pairs, max_gen_tokens=256)
+        # %%
+        # EVAL ON MODIFIED MODEL
+        post_steering_res=validate_stego_behavior(model, val_dataset_pairs, max_gen_tokens=256)
 
 
-    # %%
-    results_df = compare_results(pre_steering_res, post_steering_res)
+        # %%
+        results_df = compare_results(pre_steering_res, post_steering_res)
 
-    # %%
-    print(results_df)
+        # %%
+        print(results_df)
 
-    # %%
-    results_df.to_csv(f"../data/{model_id.split('/')[-1]}_top{k}_stego_steering_results.csv", index=False)
+        # %%
+        results_df.to_csv(f"../data/{model_id.split('/')[-1]}_top{k}_stego_steering_results.csv", index=False)
 
-    # %%
-    kl_res=calculate_kl_divergence(model, val_dataset_pairs, steering_vectors, alpha=1.0)
-    print(f"Average KL Divergence between original and steered model: {kl_res:.4f}")
+        # %%
+        kl_res=calculate_kl_divergence(model, val_dataset_pairs, steering_vectors, alpha=1.0)
+        print(f"Average KL Divergence between original and steered model: {kl_res:.4f}")
 
-    # %%
-    kl_df = pd.DataFrame({"kl_divergence": [kl_res]})
-    kl_df.to_csv(f"../data/{model_id.split('/')[-1]}_top{k}_stego_steering_kl_divergence.csv", index=False)
+        # %%
+        kl_df = pd.DataFrame({"kl_divergence": [kl_res]})
+        kl_df.to_csv(f"../data/{model_id.split('/')[-1]}_top{k}_stego_steering_kl_divergence.csv", index=False)
 
 
