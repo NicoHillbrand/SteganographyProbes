@@ -1,4 +1,6 @@
 .factory/
+.agents/
+.claude/
 data/generated/
 __pycache__/
 .ruff_cache/
