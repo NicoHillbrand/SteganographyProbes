@@ -90,12 +90,22 @@ data/probe_results/
 └── decode_prompt_pilot_summary.json        # prompt format comparison
 ```
 
-### GCM Head Attribution
+### GCM Head Attribution & Steering (COMPLETE — negative result, 2026-03-22 ~21h40)
 
 ```
-data/Qwen3-32B_top10_stego_heads_suffix_marker.json   # 300 heads ranked by IE score
-data/Qwen3-32B_top10_stego_heads_whitespace.json       # whitespace comparison (negative control — see audit)
-steer/                                                  # GCM + steering code
+data/Qwen3-32B_top10_stego_heads_suffix_marker.json       # REGENERATED (fixed template) — 307 heads ranked by IE
+data/Qwen3-32B_top10_stego_heads_whitespace.json           # REGENERATED (fixed template) — whitespace negative control
+data/Qwen3-32B_top10_stego_heads_suffix_marker_permuted.json       # Permutation null (seed=42, 50% swap)
+data/Qwen3-32B_top10_stego_heads_suffix_marker_permuted_config.json # Permutation null config
+data/Qwen3-32B_steering_summary_suffix_marker.json         # Steering results (complete null)
+data/Qwen3-32B_stego_steering_vectors_suffix_marker.pt     # Computed steering vectors (10 heads)
+data/Qwen3-32B_top10_stego_steering_results_suffix_marker.csv  # Pre/post ASR comparison
+data/Qwen3-32B_top10_stego_steering_kl_suffix_marker.csv   # KL divergence
+data/Qwen3-32B/gcm_results_suffix_marker_regen.json        # Pipeline summary (ratio=0.92, overlap=54%)
+steer/01_gcm_filter_heads_hf.py                            # Head attribution (HF native)
+steer/03_gcm_permutation_null.py                           # Permutation null test (NEW)
+steer/04_gcm_steer_hf.py                                   # HF-native steering (NEW, replaces transformer_lens)
+steer/run_gcm_pipeline.sh                                  # Full 3-step pipeline orchestration (NEW)
 ```
 
 ### Figures (Llama-3-8B, from earlier Redwood runs)
@@ -207,12 +217,21 @@ Text baselines now available for all datasets. See `<run_dir>/text_baselines/tex
 
 > TF-IDF char n-gram baseline 0.569 is near chance on the Redwood dataset. Probe delta +0.186 survives the strongest text-level control. This is now the sole confirmed representational finding in the project.
 
-### GCM head attribution (Qwen3-32B)
+### GCM head attribution (Qwen3-32B) — NEGATIVE RESULT (2026-03-22 ~21h40)
 
-| Dataset | Top head layers | Caveat |
-|---|---|---|
-| suffix_marker | L39-47 cluster | 44% overlap with whitespace negative control ([audit](pipeline-audit-2026-03-22.md) Concern 5) |
-| whitespace | L40-47 cluster | Should have been null; overlap undermines specificity |
+Full pipeline completed: head regen (fixed template) → permutation null → HF-native steering.
+
+| Dataset | Top-10 mean IE | Layer cluster | Overlap with suffix_marker |
+|---|---|---|---|
+| suffix_marker (real) | 0.0743 | L39-47 | — |
+| suffix_marker (permuted) | 0.0804 | L40-48 | 74% (37/50) |
+| whitespace | 0.0463 | L40-48 | 54% (27/50) |
+
+**Permutation null: FAILS.** Ratio = 0.92x (real < permuted). 9/10 top-10 heads identical between real and shuffled labels. 0/50 heads with ratio > 2x. Root cause: `abs()` accumulation in IE finds high-variance heads, not stego-specific ones.
+
+**Steering: COMPLETE NULL.** Pre: 0.0% ASR, post: 0.0% ASR. Log-prob delta: -0.065 (wrong direction). KL: 0.004.
+
+**Conclusion:** GCM as implemented does not identify stego-specific mechanisms. All head rankings, overlap percentages, and steering vectors are artifacts of unsigned attribution. See [audit Concern 5](pipeline-audit-2026-03-22.md) for full analysis.
 
 ---
 
@@ -254,21 +273,20 @@ PYTHONUNBUFFERED=1 python3 scripts/06_train_probes.py \
   --save_probes
 ```
 
-### Run GCM head attribution
+### Run GCM pipeline (full chain — NOTE: produces negative result with current `abs()` method)
 
 ```bash
+# Full pipeline (regen + permutation null + steering):
+PYTHONUNBUFFERED=1 bash steer/run_gcm_pipeline.sh 2>&1 | tee /tmp/gcm_pipeline.log
+
+# Individual steps:
 cd steer/
-# Edit config.py first (MODEL_ID, DATA_PATH, NUM_SAMPLES)
-python3 01_gcm_filter_heads_hf.py
+python3 01_gcm_filter_heads_hf.py                          # Head attribution
+python3 03_gcm_permutation_null.py --dataset_tag suffix_marker  # Permutation null
+python3 04_gcm_steer_hf.py --dataset_tag suffix_marker          # Steering (HF native)
 ```
 
-### Run GCM steering intervention
-
-```bash
-cd steer/
-# Uses top heads from GCM output
-python3 02_gcm_steer.py
-```
+> **WARNING (2026-03-22):** GCM pipeline produces negative result. Permutation null fails (ratio=0.92x). Root cause: `abs()` in IE accumulation. To fix, need signed IE accumulation or different attribution method.
 
 ### Text baselines
 
@@ -326,16 +344,17 @@ Ordered by **information value per unit time** per the golden rule. Evidence-bas
 | ~~**1**~~ | ~~Synonym-specific tfidf baseline (both models)~~ | ~~CPU~~ | ~~10-15m~~ | **DONE — SPLIT VERDICT** | -- | Llama tfidf=0.569 → confirmed. Qwen tfidf=0.870 → retracted. |
 | ~~**2**~~ | ~~prefixsuffix_varied stego_vs_clean probes~~ | ~~CPU~~ | -- | **DONE.** All surface markers as expected. | -- | -- |
 | ~~**3**~~ | ~~benign_keyword_suffix_marker ("goodbye") inference + probes~~ | ~~GPU~~ | ~~30m~~ | **DONE (2026-03-22 ~19h).** 0/200 compliance; probe AUC 0.909 (surface). | -- | Confirms probe detects `+++` regardless of keyword. 0% vs 4.9% compliance = keyword-specific RLHF. |
-| **4** | **GCM head regen (suffix_marker, fixed template)** | GPU | ~1h | **QUEUED (TEAM REQUEST)** | MEDIUM | Teammates have been asking. Existing heads are stale (wrong template). Even though suffix_marker is a surface artifact, clean GCM results validate the methodology and produce a documented null. Required before any steering attempt. |
-| **5** | **GCM permutation null (suffix_marker)** | GPU | ~1h | **QUEUED (TEAM), after #4** | MEDIUM | Tests whether GCM signal survives label shuffling. Expected outcome: signal is real (because `+++` is real) but surface. The 44% whitespace overlap should resolve after template fix. |
-| **6** | **GCM steering (suffix_marker)** | GPU | ~1h | **QUEUED (TEAM), after #5** | LOW-MEDIUM | End-to-end GCM demonstration. May not change behavior (model already refuses 95%). But completes the GCM pipeline for the paper's methods section. |
+| ~~**4**~~ | ~~GCM head regen (suffix_marker, fixed template)~~ | ~~GPU~~ | ~~1h~~ | **DONE — NEGATIVE (2026-03-22 ~21h40)** | -- | Overlap with whitespace INCREASED to 54% (was 44%). Template was not the cause. |
+| ~~**5**~~ | ~~GCM permutation null (suffix_marker)~~ | ~~GPU~~ | ~~1h~~ | **DONE — FAILS (2026-03-22 ~21h40)** | -- | Ratio=0.92x (real < permuted). 9/10 top-10 heads identical. `abs()` aggregation is root cause. |
+| ~~**6**~~ | ~~GCM steering (suffix_marker)~~ | ~~GPU~~ | ~~1h~~ | **DONE — NULL (2026-03-22 ~21h40)** | -- | 0% ASR pre/post, KL=0.004. Steering on invalid heads has no effect. |
 | ~~7~~ | ~~Qwen3-14B anything~~ | ~~GPU~~ | ~~hours~~ | **DEPRIORITIZED.** | -- | Third model adds scale, not insight. Cross-model replication retracted anyway. |
+| **NEW** | **Causal localization on Llama synonym signal** | GPU | ~2-4h | **HIGHEST VALUE NEXT STEP** | HIGH | The one confirmed representational finding (probe +0.186 vs tfidf) lacks causal evidence. Layerwise activation patching/ablation would determine if representation is causally used. |
 
 ### What was cut and why (history)
 
 **Goodbye dataset (2026-03-22 ~18h30):** Demoted from MEDIUM to LOW. Now DONE (see above). Result: 0% compliance with "goodbye" adds one clean data point about keyword-specific RLHF, confirming what prefixsuffix_varied already showed (compliance varies by context). Probe AUC 0.909 matches original 0.929 within noise.
 
-**GCM (2026-03-22 ~18h30 → REINSTATED ~20h00):** Previously deprioritized because (a) stale heads, (b) surface artifact target, (c) ~3h GPU. Now **reinstated at team request**. Scientific justification: even on a surface artifact, clean GCM methodology with permutation null is a methods contribution. The 44% head overlap with whitespace may resolve after template fix -- worth documenting either way. And teammates need this for their contributions to the project.
+**GCM (2026-03-22 ~18h30 → REINSTATED ~20h00 → COMPLETED ~21h40 — NEGATIVE):** Previously deprioritized, then reinstated at team request. **Full pipeline now complete with definitive negative result.** Permutation null fails (ratio 0.92x); overlap increased to 54% after template fix; steering is null. Root cause identified: `abs()` in IE accumulation. GCM as implemented is not suitable for this application. If GCM is to be pursued, need signed IE or activation patching. Documented as methodological negative result — useful for the paper's honesty.
 
 **Qwen3-14B (2026-03-22 ~18h30):** Stays deprioritized. Cross-model replication was retracted; third model doesn't help.
 
@@ -354,3 +373,4 @@ Ordered by **information value per unit time** per the golden rule. Evidence-bas
 - [x] Qwen3-32B prefixsuffix_varied stego_vs_clean probes -- AUC 0.942 at L46; inline_keyword 0.974, prefix_marker_varied 0.951, suffix_marker_varied 0.928 (all surface markers, tfidf=0.998)
 - [x] **Per-method TF-IDF baselines (both models)** -- Llama synonym tfidf=0.569 (confirmed, delta +0.186). Qwen synonym tfidf=0.870 (retracted). Cross-model replication retracted.
 - [x] **benign_keyword_suffix_marker inference + probes** -- 400 examples, keyword "goodbye". **FAILED at stated goal:** 0/200 compliance (wanted MORE than "attack"'s 4.9%, got LESS). Keyword probes impossible (0 positives). Only stego_vs_clean probes trained -- just re-detect `+++` surface marker (AUC 0.909). Mild behavioral interest: "goodbye" more suppressed than "attack".
+- [x] **GCM full pipeline (regen + permutation null + steering)** -- completed 2026-03-22 ~21h40. **NEGATIVE RESULT:** Permutation null fails (ratio=0.92x, real < permuted). 9/10 top-10 heads identical under shuffled labels. Steering complete null (0% ASR pre/post, KL=0.004). Root cause: `abs()` accumulation in IE computation finds high-variance heads, not stego-specific ones. Overlap with whitespace increased to 54% after template fix. New scripts: `steer/03_gcm_permutation_null.py`, `steer/04_gcm_steer_hf.py`, `steer/run_gcm_pipeline.sh`.

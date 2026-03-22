@@ -198,6 +198,76 @@ All GCM scripts now use the same format as `05_run_inference.py`:
 | Keyword probe (whitespace) | L9 | 0.603 | N/A |
 | Keyword probe (game_v2) | L10 | 0.629 | N/A |
 
+### 1.10 GCM Pipeline Results (completed 2026-03-22 ~21h40 UTC)
+
+Full 3-step pipeline completed on suffix_marker: head regen (fixed template) → permutation null → HF-native steering. New scripts `steer/03_gcm_permutation_null.py` and `steer/04_gcm_steer_hf.py` were written to support Qwen3-32B (transformer_lens doesn't support it). Pipeline orchestrated by `steer/run_gcm_pipeline.sh`.
+
+**Step 1 — Head Regen (fixed template):**
+
+| Dataset | Top head | Top-10 mean IE | Layer cluster |
+|---|---|---|---|
+| suffix_marker | L42H7 (0.135) | 0.0743 | L39-47 |
+| whitespace | L45H3 (0.070) | 0.0463 | L40-48 |
+
+Overlap (top 50): 27/50 (54%). **Increased** from 22/50 (44%) under the old template. Template fix did NOT resolve the overlap — it worsened it.
+
+**Step 2 — Permutation Null (suffix_marker, seed=42, 50 pairs, 50% label swap):**
+
+| Metric | Real | Permuted | Ratio |
+|---|---|---|---|
+| Top-10 mean IE score | 0.0743 | 0.0804 | **0.92x** |
+| Top-50 mean IE score | 0.0493 | 0.0533 | 0.92x |
+
+**The permutation null FAILS catastrophically.** The permuted condition — where stego/clean labels are randomly shuffled — produces HIGHER IE scores than the real condition. Key details:
+
+- 9/10 top-10 heads are **identical** between real and permuted (only L40H22 in real is replaced by L48H39 in permuted)
+- 37/50 (74%) top-50 heads are shared between real and permuted
+- **Zero** heads in the top 50 have a real/permuted ratio > 2.0x
+- Best individual head (L42H7): real=0.135, permuted=0.093, ratio=1.46x (not significant)
+- Several top-10 heads have real < permuted (e.g., L42H30: 0.072 vs 0.101, ratio 0.72x)
+
+Per-head real vs permuted for top-10:
+
+| Head | Real | Permuted | Ratio |
+|---|---|---|---|
+| L42H7 | 0.135 | 0.093 | 1.46x |
+| L45H3 | 0.074 | 0.071 | 1.05x |
+| L42H30 | 0.072 | 0.101 | **0.72x** |
+| L42H25 | 0.072 | 0.086 | **0.84x** |
+| L39H61 | 0.071 | 0.081 | **0.88x** |
+| L43H52 | 0.067 | 0.066 | 1.02x |
+| L44H30 | 0.067 | 0.081 | **0.82x** |
+| L47H2 | 0.066 | 0.088 | **0.75x** |
+| L40H22 | 0.060 | 0.045 | 1.35x |
+| L47H5 | 0.059 | 0.081 | **0.73x** |
+
+**Root cause:** `total_ie_scores[l] += ie_per_head.abs().cpu()` in `get_stego_knockout_attribution`. The `abs()` accumulation prevents cancellation of opposing gradient directions. High-variance heads (large activations regardless of condition) dominate the ranking under both real and random labels. This is a well-known pitfall in unsigned attribution methods.
+
+**Step 3 — Steering (HF-native, suffix_marker, alpha=1.0):**
+
+| Metric | Pre-steering | Post-steering | Delta |
+|---|---|---|---|
+| Attack success rate | 0.0% | 0.0% | 0.0 |
+| Avg log-prob of "attack" | -32.84 | -32.90 | -0.065 |
+| KL divergence | — | — | 0.004 |
+
+**Steering is a complete null.** Zero behavioral change. The tiny log-prob shift (-0.065) is in the wrong direction (moving further from "attack", not toward it). KL divergence of 0.004 confirms the intervention barely changed the model's output distribution. This is expected given that the top heads selected for steering are not stego-specific (as proved by the permutation null).
+
+**Note on val_num_samples:** The steering summary shows `val_num_samples=200` despite the pipeline script not passing this argument (default is -1 = all). The pre-steering ASR of 0.0% (vs 4.9% on the full 1000-example dataset) may reflect (a) greedy decoding (`do_sample=False`), (b) shorter generation (`max_gen_tokens=100`), or (c) the first 200 pairs excluding high-compliance task templates. Regardless, the pre/post comparison is the relevant metric and both are 0.0%.
+
+**Cross-condition overlap summary (top-50 heads, after template fix):**
+
+| Comparison | Overlap | Percentage |
+|---|---|---|
+| suffix_marker vs whitespace | 27/50 | 54% |
+| suffix_marker vs permuted | 37/50 | 74% |
+| whitespace vs permuted | 27/50 | 54% |
+| All three conditions | 24/50 | 48% |
+
+All three conditions concentrate in layers L40-47, with L42 having the most heads in each (8-10 heads). The GCM pipeline identifies the same high-variance attention heads regardless of the input contrast.
+
+**Summary JSON:** `data/Qwen3-32B/gcm_results_suffix_marker_regen.json` (ratio=0.92, overlap=54%, steering null).
+
 ---
 
 ## 2. Interpretation (Separated from Data)
@@ -254,20 +324,25 @@ Text baselines now run on all 4 game-scenario datasets. `07_text_baselines.py` a
 
 > **CAVEAT (2026-03-22 ~18h30):** The delta is computed against **char features only** (8 hand-crafted stats: length, tab_count, newline_count, cap_ratio, etc.). These features cannot detect word-level synonym substitutions by construction. The **tfidf character n-gram baseline was only computed pooled** (all 5 methods: AUC 0.876), not per-method. Pooled tfidf is dominated by easy methods (unicode=1.000, prefix_binary=1.000). **No synonym-specific tfidf baseline exists for either model.** Character n-grams (2-6 char sequences) could potentially detect synonym substitutions through shifted bigram/trigram frequencies. Until a synonym-specific tfidf baseline is computed, the delta remains uncalibrated against this stronger feature set. See new Concern 8.
 
-### Concern 5: GCM causal specificity is undermined
+### ~~Concern 5: GCM causal specificity is undermined~~ CONFIRMED — GCM PIPELINE FAILS NULL TEST (2026-03-22 ~21h40)
 
-**Severity: MEDIUM**
+~~**Severity: MEDIUM**~~ → **SEVERITY: CRITICAL (confirmed)**
 
-The whitespace condition was intended as a negative control for GCM (zero behavioral signal, so GCM should find no meaningful heads). Instead, the top-50 head lists overlap by 22/50 (44%), and both concentrate in layers 39-47.
+The full GCM pipeline (regen + permutation null + steering) was completed with the fixed template. **All three lines of evidence confirm the GCM head attribution is not stego-specific:**
 
-Possible explanations:
-1. The `abs()` accumulation in `get_stego_knockout_attribution` inflates high-variance heads identically across conditions
-2. These heads are structurally important for any instruction-following task (system prompt processing), not stego-specific
-3. The paired stego/clean difference in whitespace still contains systematic formatting differences that create non-zero gradients
+1. **Permutation null fails:** ratio = 0.92x (real < permuted). The GCM method finds the same heads regardless of whether labels are real or randomly shuffled. 9/10 top-10 heads are identical. 0/50 heads have ratio > 2x. See Section 1.10 for full details.
+2. **Overlap increased after template fix:** suffix_marker vs whitespace 27/50 (54%), up from 22/50 (44%). Template fix was not the cause of overlap — the problem is structural.
+3. **Steering is null:** 0% ASR both pre and post, log-prob shift -0.065 (wrong direction), KL = 0.004.
 
-The existing notes (`gcm-qwen3-32b-implementation-notes.md`) already flag this concern and recommend a permutation null. That null has not been run.
+**Root cause confirmed:** The `abs()` accumulation in `get_stego_knockout_attribution` (explanation #1 from the original concern) is the dominant factor. High-variance attention heads in L40-47 have large IE scores under any contrast, including shuffled labels. The IE computation `|∇_z log(P_stego/P_clean) · z_clean|` is dominated by heads with large `z_clean` norms and large gradients, regardless of whether the stego/clean distinction is real.
 
-**Note (2026-03-22):** The GCM head lists in `data/` were also computed under a mismatched prompt template (now fixed). Both issues — template mismatch and 44% overlap — require regenerating the head lists from scratch before any steering run. The correct sequencing is: regenerate GCM heads with the fixed template, then run the permutation null, then steer.
+**What would be needed to fix the GCM pipeline:**
+- Use **signed** IE accumulation (sum without abs, then take abs at the end) so opposing gradient directions cancel
+- Or use **mean difference** of head activations between conditions (simpler, more robust)
+- Or use **activation patching** (swap activations between conditions and measure metric change)
+- Run multiple permutation seeds (not just one) to get a proper null distribution with confidence intervals
+
+**Implication:** All GCM-derived results (head rankings, overlap percentages, steering vectors) are invalid as evidence of stego-specific mechanisms. They are useful only as a documented methodological negative result.
 
 ### ~~Concern 6: GCM prompt template mismatch~~ FIXED
 
@@ -370,19 +445,21 @@ Completed. Results: pooled AUC 0.847 at L48. Synonym AUC 0.868. See Section 1.1 
 
 Fixed in `06_train_probes.py` (commit `49af6d3`). Output JSON now records `"target_label": "is_stego"` when `--use_ground_truth_labels` is active.
 
-### ~~Priority 5 (was 4): Run GCM permutation null~~ DEPRIORITIZED → REINSTATED (TEAM, 2026-03-22 ~20h)
+### ~~Priority 5 (was 4): Run GCM pipeline (regen + permutation null + steer)~~ DONE — NEGATIVE RESULT (2026-03-22 ~21h40)
 
-Previously deprioritized because surface artifact target + stale heads. **Reinstated at team request.** The GCM chain (regen heads → permutation null → steer) is ~3h GPU but produces:
-- Clean methodology validation (template-fixed head attribution)
-- Documented permutation null result
-- Resolution of the 44% whitespace overlap question (may resolve after template fix)
-- End-to-end GCM demonstration for methods section
+Full 3-step pipeline completed. **Result: GCM head attribution is not stego-specific.** See Section 1.10 and Concern 5 for quantitative details.
 
-Even on a surface artifact, this is a methods contribution the team needs for the paper. Chain: `01_gcm_filter_heads_hf.py` (regen, ~1h) → permutation null (~1h) → `02_gcm_steer.py` (~1h). All scripts already template-fixed. **Queue in tmux when GPU is free.**
+- Head regen (fixed template): overlap with whitespace INCREASED to 54% (was 44%)
+- Permutation null: ratio=0.92x (real < permuted). 9/10 top-10 heads identical. 0/50 heads with ratio > 2x
+- Steering: complete null (0% ASR pre/post, KL=0.004)
+- Root cause: `abs()` accumulation in IE computation finds high-variance heads, not stego-specific heads
+
+New scripts: `steer/03_gcm_permutation_null.py`, `steer/04_gcm_steer_hf.py`, `steer/run_gcm_pipeline.sh`.
+Summary: `data/Qwen3-32B/gcm_results_suffix_marker_regen.json`.
 
 ### ~~Priority 5: Align GCM prompt template with inference script~~ DONE
 
-All three GCM scripts now use `f"Context from previous assistant:\n{entry['input_text']}\n\nTask: {entry['task']}"`. `02_gcm_steer.py` fixed by Sweta (`0d762ee`); `01_gcm_filter_heads.py` and `01_gcm_filter_heads_hf.py` fixed in the commit accompanying this audit update. **The existing GCM head lists in `data/` were computed under the old template and must be regenerated before running steering.**
+All GCM scripts now use the matched template. Head regen confirmed the template fix did not resolve the overlap issue — the problem is the `abs()` aggregation method.
 
 ---
 
@@ -401,16 +478,17 @@ All three GCM scripts now use `f"Context from previous assistant:\n{entry['input
 
 1. ~~"Qwen3-32B internally represents steganography (AUC 0.929)."~~ **CONFIRMED ARTIFACT:** tfidf baseline = 1.000 on suffix_marker. Probe detects literal `+++` token.
 2. ~~"AUC improvement from 0.861 to 0.929 shows ground-truth labels access deeper representations."~~ These are incomparable metrics answering different questions at different difficulties.
-3. ~~"GCM identifies stego-specific attention heads in layers 39-47."~~ 44% overlap with whitespace negative control, no permutation null, and stale prompt template. All existing GCM results need regeneration.
+3. ~~"GCM identifies stego-specific attention heads in layers 39-47."~~ **CONFIRMED ARTIFACT (2026-03-22 ~21h40):** Full pipeline rerun with fixed template + permutation null. Ratio=0.92x (permuted > real). 9/10 top heads identical under shuffled labels. Steering null. GCM finds high-variance heads, not stego-specific ones. Root cause: `abs()` accumulation in IE computation.
 4. ~~"Whitespace stego_vs_clean probe (AUC 0.826) shows model detects whitespace encoding."~~ **CONFIRMED ARTIFACT:** char baseline = 1.000 on whitespace. Probe detects newline/tab formatting.
 5. ~~"Qwen3-32B internally represents synonym steganography (cross-model replication)."~~ **RETRACTED (2026-03-22):** synonym tfidf baseline = 0.870, matching probe AUC 0.868. The game_scenarios_v2 dataset's domain vocabulary makes substitutions char-detectable. The two models were tested on structurally different datasets; the similar char deltas (+0.248 vs +0.256) were a coincidence, not a replication. See Concern 8.
 
 ### Claims that need more experiments:
 
-1. **GCM head attribution (team priority):** Existing heads are stale (wrong template). Need regeneration + permutation null to validate methodology. Expected to confirm surface-feature detection, not reveal deeper representations. Queued for teammates.
+1. ~~**GCM head attribution (team priority):**~~ **DONE — NEGATIVE (2026-03-22 ~21h40).** Full pipeline completed (regen + permutation null + steering). Permutation null fails (ratio 0.92x). Steering null. The GCM method as implemented does not identify stego-specific heads. **If GCM is to be pursued further, the `abs()` accumulation must be replaced with signed IE, or a different attribution method (activation patching, mean-difference) must be used.**
+2. **Causal localization on Llama-3-8B synonym signal:** The one confirmed representational finding (probe delta +0.186 vs tfidf) lacks causal evidence. Layerwise activation patching / ablation on the synonym subset would determine whether the representation is causally used. This is the highest-value next experiment for the project.
 
-All pending calibrations on probe claims are resolved. The single confirmed representational finding is Llama-3-8B synonym probe. Qwen cross-model replication is retracted. Remaining work is methodological (GCM validation) not crux-resolving.
+All pending calibrations on probe claims are resolved. All GCM claims are resolved (negative). The single confirmed representational finding is Llama-3-8B synonym probe. Qwen cross-model replication is retracted.
 
 ---
 
-*Reviewed all scripts: 04_build_game_scenarios.py, 05_run_inference.py, 06_train_probes.py, 07_text_baselines.py, 09_generate_whitespace_dataset.py, 10_generate_suffix_marker_dataset.py, 01_gcm_filter_heads_hf.py, 02_gcm_steer.py. All result JSONs verified against actual .npy file shapes and metadata. Last updated: 2026-03-22 ~20h UTC (added benign_keyword results, reinstated GCM for team, updated claims).*
+*Reviewed all scripts: 04_build_game_scenarios.py, 05_run_inference.py, 06_train_probes.py, 07_text_baselines.py, 09_generate_whitespace_dataset.py, 10_generate_suffix_marker_dataset.py, 01_gcm_filter_heads_hf.py, 02_gcm_steer.py, 03_gcm_permutation_null.py, 04_gcm_steer_hf.py. All result JSONs verified against actual data on disk. Last updated: 2026-03-22 ~22h UTC (added GCM pipeline results: permutation null fails, steering null, Concern 5 confirmed, claims updated).*
