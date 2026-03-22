@@ -1,5 +1,45 @@
 # Handoff: Qwen3-32B Overnight Pipeline Run
 
+## Qwen3-32B Results (overnight run)
+
+**Completed:** 2026-03-22T04:42:38
+**Runs completed:** 1/3
+
+### Qwen3-32B Keyword Rates and Probe Results
+
+| Method | Stego kw rate | Clean kw rate | Delta | Best layer | AUC-ROC |
+|--------|--------------|--------------|-------|-----------|---------|
+| suffix_marker | 4.9% | 0.0% | +4.9% | L? | ? |
+| whitespace | NOT RUN | - | - | - | - |
+| game_scenarios_v2 | NOT RUN | - | - | - | - |
+
+### Llama-3-8B Baseline (for comparison)
+
+| Method | Stego kw rate | Clean kw rate | Delta | Best layer | AUC-ROC |
+|--------|--------------|--------------|-------|-----------|---------|
+| suffix_marker | 45.1% | 40.0% | +5.1% | L28 | 0.578 |
+| whitespace | 46.7% | 49.2% | -2.5% | L9 | 0.603 |
+| game_scenarios_v2 | 40.2% | 37.0% | +3.2% | L10 | 0.629 |
+
+### Cross-Model Comparison
+
+| Metric | Llama-3-8B | Qwen3-32B | Improvement? |
+|--------|-----------|-----------|-------------|
+| Behavioral discrimination | Near-zero gap | See above | TBD |
+| Probe AUC-ROC (best) | 0.629 | See above | TBD |
+| Layers | 32 | 64 | 2x |
+| Hidden dim | 4096 | 5120 | 1.25x |
+
+### Issues
+No errors found in pipeline log.
+
+### Validation gate
+PASSED: At least 1 run completed.
+
+---
+
+
+
 **Date:** 2026-03-21 (updated with full Llama-3-8B evidence)
 **For:** Overnight agent on GH200
 **Priority:** Run full stego pipeline with Qwen3-32B to compare against Llama-3-8B baseline
