@@ -15,6 +15,7 @@ helpers to write outputs into an isolated, timestamped run directory:
 import json
 import os
 import subprocess
+import sys
 from datetime import datetime
 
 
@@ -87,9 +88,17 @@ def save_run_config(run_dir: str, args_dict: dict, extra_metadata: dict | None =
         args_dict: Dictionary of script arguments (e.g. vars(args)).
         extra_metadata: Optional additional metadata to include.
     """
+    try:
+        import torch
+        torch_version = torch.__version__
+    except ImportError:
+        torch_version = None
+
     config = {
         "timestamp": datetime.now().isoformat(),
         "git_commit": _get_git_hash(),
+        "python_version": sys.version,
+        "torch_version": torch_version,
         "args": args_dict,
     }
     if extra_metadata:

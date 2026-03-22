@@ -33,6 +33,9 @@ parser.add_argument("--dataset", type=str, default="data/combined_dataset.jsonl"
 parser.add_argument("--scenarios", type=str, default=None,
                     help="Path to game scenarios JSONL (optional, runs game eval too)")
 parser.add_argument("--batch_size", type=int, default=4)
+parser.add_argument("--generation_batch_size", type=int, default=None,
+                    help="Batch size for generation (defaults to --batch_size). "
+                         "Use a larger value here when generation doesn't need hidden states.")
 parser.add_argument("--max_examples", type=int, default=None,
                     help="Limit number of examples (for testing)")
 parser.add_argument("--layers", type=str, default="all",
@@ -119,7 +122,9 @@ def load_model(model_name):
 
 def parse_layer_spec(spec, n_layers):
     """Parse layer specification string into list of layer indices."""
-    if spec == "all":
+    if spec == "none":
+        return []
+    elif spec == "all":
         return list(range(n_layers))
     elif spec == "last":
         return [n_layers - 1]
@@ -469,12 +474,13 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path):
     # Generate responses
     if args.generate:
         print(f"\nGenerating {len(prompts)} Model B responses...")
+        gen_bs = args.generation_batch_size or args.batch_size
         responses = generate_responses(
             model,
             tokenizer,
             prompts,
             args.max_new_tokens,
-            args.batch_size,
+            gen_bs,
             generation_mode=args.generation_mode,
             temperature=args.temperature,
             top_p=args.top_p,
@@ -494,12 +500,6 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path):
     # Extract activations
     n_layers = model.config.num_hidden_layers
     layer_indices = parse_layer_spec(args.layers, n_layers)
-    print(f"Extracting activations from {len(layer_indices)} layers...")
-
-    activations = extract_activations(
-        model, tokenizer, probe_inputs, layer_indices,
-        args.token_position, args.max_length, args.batch_size
-    )
 
     # Save to run directory
     from run_utils import create_run_dir, save_run_config
@@ -516,7 +516,16 @@ def run_game_scenarios(model, tokenizer, scenarios_path, stego_dataset_path):
         "format_version": "v2" if is_v2 else "v1",
     })
 
-    save_activation_outputs(task_dir, activations, layer_indices, args.token_position)
+    if layer_indices:
+        print(f"Extracting activations from {len(layer_indices)} layers...")
+        activations = extract_activations(
+            model, tokenizer, probe_inputs, layer_indices,
+            args.token_position, args.max_length, args.batch_size
+        )
+        save_activation_outputs(task_dir, activations, layer_indices, args.token_position)
+    else:
+        print("No layers requested, skipping activation extraction")
+        activations = {}
 
     np.save(os.path.join(task_dir, "labels.npy"), np.array(labels))
 
