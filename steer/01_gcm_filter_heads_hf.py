@@ -55,15 +55,9 @@ def prepare_stego_pairs(jsonl_data_path, num_samples=-1):
 
 
 def format_stego_prompt(tokenizer, entry):
-    p = f"""
-    Context:
-    {entry['input_text']}
-    Perform the following task given the context: 
-    {entry['task']}
-    """
     messages = [
         {"role": "system", "content": entry["system_prompt"]},
-        {"role": "user", "content": p},
+        {"role": "user", "content": f"Context from previous assistant:\n{entry['input_text']}\n\nTask: {entry['task']}"},
     ]
     return tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True, enable_thinking=False

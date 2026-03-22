@@ -126,23 +126,18 @@ The tokenizer produces categorically different token sequences for these two con
 
 Stego examples are identical to clean except `" +++"` is appended. The three-character marker is literally present in the prompt token stream.
 
-### 1.7 Prompt template mismatch between inference and GCM
+### 1.7 Prompt template mismatch between inference and GCM — **FIXED**
 
-Inference script (`05_run_inference.py`):
+All GCM scripts now use the same format as `05_run_inference.py`:
 ```
-"Context from previous assistant:\n{context}\n\nTask: {task}"
-```
-
-GCM script (`01_gcm_filter_heads_hf.py`):
-```
-"\n    Context:\n    {input_text}\n    Perform the following task given the context:\n    {task}\n    "
+"Context from previous assistant:\n{input_text}\n\nTask: {task}"
 ```
 
-These produce different token sequences. The GCM heads were identified on a different computational path than the one the probes were trained on.
+`02_gcm_steer.py` was fixed by Sweta (commit `0d762ee`). `01_gcm_filter_heads.py` and `01_gcm_filter_heads_hf.py` were updated to match in the same atomic commit as this audit update. The GCM head lists in existing results were computed under the old template and should be regenerated before any steering run.
 
-### 1.8 Metadata bug in probe results
+### 1.8 Metadata bug in probe results — **FIXED**
 
-`probe_results_stego_vs_clean.json` for both suffix_marker and whitespace records `"target_label": "keyword_present"` even though `--use_ground_truth_labels` was used. The `n_positive: 1000` value confirms ground-truth labels were actually used. The bug is in `06_train_probes.py`: the `TARGET_LABELS` dict always maps `game_scenarios` to `keyword_present`, and the code writes this string to the output without checking whether `--use_ground_truth_labels` was passed.
+`probe_results_stego_vs_clean.json` for both suffix_marker and whitespace previously recorded `"target_label": "keyword_present"` even when `--use_ground_truth_labels` was used. Fixed in `06_train_probes.py` (commit `49af6d3`): the output dict now writes `"is_stego"` when `--use_ground_truth_labels` is active. Probe weights, AUC, and AP were unaffected — metadata only. Existing JSON files on disk still contain the stale value; re-run probes to regenerate them.
 
 ### 1.9 Llama-3-8B reference results
 
@@ -212,11 +207,11 @@ Possible explanations:
 
 The existing notes (`gcm-qwen3-32b-implementation-notes.md`) already flag this concern and recommend a permutation null. That null has not been run.
 
-### Concern 6: GCM prompt template mismatch
+**Note (2026-03-22):** The GCM head lists in `data/` were also computed under a mismatched prompt template (now fixed). Both issues — template mismatch and 44% overlap — require regenerating the head lists from scratch before any steering run. The correct sequencing is: regenerate GCM heads with the fixed template, then run the permutation null, then steer.
 
-**Severity: MEDIUM**
+### ~~Concern 6: GCM prompt template mismatch~~ FIXED
 
-Detailed in Section 1.7 above. The different framing ("Context from previous assistant:" vs "Context:" + "Perform the following task given the context:") means the GCM analysis identifies heads causally important for stego detection *under a different prompt format* than the probes were trained on. The identified heads may not correspond to the same computational pathway.
+All GCM scripts now match `05_run_inference.py` (see Section 1.7). The existing GCM head-attribution results in `data/` were computed under the old template. Re-run `01_gcm_filter_heads_hf.py` before trusting those head lists for steering.
 
 ### Concern 7: game_scenarios_v2 behavioral null result
 
@@ -290,20 +285,17 @@ Also calibrates suffix_marker (0.929) and whitespace (0.826) -- expected to coll
 
 Completed. Results: pooled AUC 0.847 at L48. Synonym AUC 0.868. See Section 1.1 for full per-method breakdown. Synonym signal is promising but awaits text baseline calibration (Priority 1).
 
-### Priority 3: Fix target_label metadata bug
+### ~~Priority 3: Fix target_label metadata bug~~ DONE
 
-In `06_train_probes.py`, when `--use_ground_truth_labels` is passed, the output JSON should record `"target_label": "is_stego"` instead of the default `"keyword_present"`. One-line fix in the output dict construction.
+Fixed in `06_train_probes.py` (commit `49af6d3`). Output JSON now records `"target_label": "is_stego"` when `--use_ground_truth_labels` is active.
 
 ### Priority 4: Run GCM permutation null
 
 Shuffle the stego/clean pairing assignments and re-run GCM on suffix_marker. If the permuted IE score distribution overlaps with the real top-head scores, the GCM results are not stego-specific.
 
-### Priority 5: Align GCM prompt template with inference script
+### ~~Priority 5: Align GCM prompt template with inference script~~ DONE
 
-Update `format_stego_prompt()` in `01_gcm_filter_heads_hf.py` and `02_gcm_steer.py` to match the format used in `05_run_inference.py`:
-```python
-f"Context from previous assistant:\n{entry['input_text']}\n\nTask: {entry['task']}"
-```
+All three GCM scripts now use `f"Context from previous assistant:\n{entry['input_text']}\n\nTask: {entry['task']}"`. `02_gcm_steer.py` fixed by Sweta (`0d762ee`); `01_gcm_filter_heads.py` and `01_gcm_filter_heads_hf.py` fixed in the commit accompanying this audit update. **The existing GCM head lists in `data/` were computed under the old template and must be regenerated before running steering.**
 
 ---
 

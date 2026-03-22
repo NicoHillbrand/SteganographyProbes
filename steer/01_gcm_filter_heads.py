@@ -70,15 +70,9 @@ def format_stego_prompt(tokenizer, entry):
     """
     Applies the model's specific chat template.
     """
-    p=f'''
-    Context:
-    {entry['input_text']}
-    Perform the following task given the context: 
-    {entry['task']}
-    '''
     messages = [
         {"role": "system", "content": entry['system_prompt']},
-        {"role": "user", "content": p},
+        {"role": "user", "content": f"Context from previous assistant:\n{entry['input_text']}\n\nTask: {entry['task']}"},
     ]
     
     # add_generation_prompt=True adds the "assistant" header 
