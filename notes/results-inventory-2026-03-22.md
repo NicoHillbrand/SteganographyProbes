@@ -75,7 +75,20 @@ data/Meta-Llama-3-8B-Instruct/runs/
 ├── 2026-03-21_suffix_marker/               # complete (probes + activations)
 ├── 2026-03-21_whitespace/                  # complete
 ├── 2026-03-21_game_scenarios_v2/           # responses only, NO layer .npy files
-└── 2026-03-21_lora_carriers_hugo/          # abandoned (53.7% complete, contaminated)
+├── 2026-03-21_lora_carriers_hugo/          # abandoned (53.7% complete, contaminated)
+└── 2026-03-22_stego_detection_reextract/   # COMPLETE — full causal chain (P0-P3)
+    ├── config.json                         # generate=false, use_chat_template=false
+    ├── activations/
+    │   ├── metadata.json                   # 2000 examples, 5 methods (200 each) + 1000 clean
+    │   ├── labels.npy                      # ground-truth is_stego (1000/1000)
+    │   └── layer_00.npy ... layer_31.npy   # activations (2000 x 4096) per layer
+    ├── probe_results/
+    │   ├── probe_results_stego_vs_clean.json  # Best L9, AUC 0.761 (pooled), synonym 0.574
+    │   └── trained_probes/layer_00..31/       # saved probes (5 seeds each)
+    └── probe_results_stego_vs_clean/
+        ├── p1_ablation_results.json        # Knockout: no localization, total_drop=0.0
+        ├── p2_probe_direction_analysis.json # Cosine: mean 0.302, L3 direction local only
+        └── p3_probe_steer_results.json     # Steering: causal_confirmed=true BUT tautological (KL=1.853)
 ```
 
 ### Earlier Redwood runs (Llama-3-8B)
@@ -218,13 +231,14 @@ Text baselines now available for all datasets. See `<run_dir>/text_baselines/tex
 | game_scenarios_v2 | -- | -- | -- | 7/2000 (degenerate, skip) |
 | prefixsuffix_varied | L56 | 0.790 | 0.209 | 194/5000 (imbalanced) |
 
-### Llama-3-8B headline (synonym presence detection)
+### ~~Llama-3-8B headline (synonym presence detection)~~ RETRACTED (2026-03-22 ~22h31)
 
-| Probe AUC | Char baseline | TF-IDF baseline | Delta vs tfidf | Status |
-|---|---|---|---|---|
-| 0.755 (L3) | 0.499 (chance) | **0.569** | **+0.186** | **Confirmed against strongest text baseline (2026-03-22)** |
+| Run | Probe AUC | Best Layer | TF-IDF baseline | Delta vs tfidf | Status |
+|---|---|---|---|---|---|
+| Old extraction (deleted) | 0.754 | L3 | 0.569 | +0.186 | ~~Confirmed~~ → **RETRACTED** |
+| **Re-extraction (current)** | **0.574** | **L9** | **0.569** | **+0.005** | **Fails replication** |
 
-> TF-IDF char n-gram baseline 0.569 is near chance on the Redwood dataset. Probe delta +0.186 survives the strongest text-level control. This is now the sole confirmed representational finding in the project.
+> **RETRACTED (2026-03-22 ~22h31):** Re-extraction of Llama-3-8B activations on the same `combined_dataset.jsonl` with `use_chat_template=false` gives synonym AUC 0.574 vs tfidf 0.569 — delta +0.005, effectively zero. All methods degraded vs old extraction (acrostic: 1.000→0.907, whitespace: 1.000→0.710), indicating the old result was pipeline-configuration-dependent. P1 ablation confirms: L3 probe baseline 0.436 (below chance on synonym), zero total drop. **The project now has zero confirmed positive interpretability findings.** What survives: behavioral specificity findings, RLHF suppression patterns, and the experimental framework itself.
 
 ### GCM head attribution — NEGATIVE RESULT (both models)
 
@@ -367,7 +381,7 @@ Ordered by **information value per unit time** per the golden rule. Evidence-bas
 | ~~**6**~~ | ~~GCM steering (suffix_marker)~~ | ~~GPU~~ | ~~1h~~ | **DONE — NULL (2026-03-22 ~21h40)** | -- | 0% ASR pre/post, KL=0.004. Steering on invalid heads has no effect. |
 | ~~7~~ | ~~Qwen3-14B anything~~ | ~~GPU~~ | ~~hours~~ | **DEPRIORITIZED.** | -- | Third model adds scale, not insight. Cross-model replication retracted anyway. |
 | ~~**NEW**~~ | ~~GCM permutation null on Llama synonym~~ | GPU | ~10m | **DONE — SAME PATTERN (2026-03-22 ~22h10)** | -- | Permuted null: L31 dominates (6/10 top-10), 52% in last 3 layers = identical to Qwen. `abs()` artifact is architecture-general. Real heads file lost (path error). |
-| **NEW** | **Causal localization on Llama synonym signal** | GPU | ~2-4h | **HIGHEST VALUE NEXT STEP** | HIGH | The one confirmed representational finding (probe +0.186 vs tfidf) lacks causal evidence. Layerwise activation patching/ablation would determine if representation is causally used. See `notes/2026-03-22_final-12h-experiment-matrix.md`. |
+| ~~**NEW**~~ | ~~Causal localization on Llama synonym signal~~ | GPU | ~2-4h | **DONE — NO SIGNAL (2026-03-22 ~22h31)** | -- | Re-extraction synonym AUC=0.574, delta≈0 vs tfidf. P1 ablation: total_drop=0.0. P2: direction local (cos<0.2 by L9). P3: tautological (KL=1.853). Nothing to localize. |
 
 ### What was cut and why (history)
 
@@ -395,3 +409,5 @@ Ordered by **information value per unit time** per the golden rule. Evidence-bas
 - [x] **GCM full pipeline (regen + permutation null + steering)** -- completed 2026-03-22 ~21h40. **NEGATIVE RESULT:** Permutation null fails (ratio=0.92x, real < permuted). 9/10 top-10 heads identical under shuffled labels. Steering complete null (0% ASR pre/post, KL=0.004). Root cause: `abs()` accumulation in IE computation finds high-variance heads, not stego-specific ones. Overlap with whitespace increased to 54% after template fix. New scripts: `steer/03_gcm_permutation_null.py`, `steer/04_gcm_steer_hf.py`, `steer/run_gcm_pipeline.sh`.
 - [x] **Llama-3-8B synonym GCM permutation null** -- completed 2026-03-22 ~22h10. Cross-model confirmation of `abs()` artifact. L31 dominates permuted heads (6/10 top-10, 10/50 top-50). Last 3 layers hold 52% of top-50 -- identical to Qwen's 52% in L42-45. Real heads computation completed but file LOST (relative path error in `01_gcm_filter_heads_hf.py`). Code updated: `enable_thinking` conditional, `head_dim` fallback, multi-layer single-pass hooking (14x speedup). New dataset: `synonym_game_scenarios.jsonl` (400 entries).
 - [x] **Final 12h experiment matrix** -- written to `notes/2026-03-22_final-12h-experiment-matrix.md`. Prioritized P0-P5 plan anchored in disk state: re-extract Llama activations → layerwise ablation → probe direction analysis → steering → write-up.
+- [x] **P4 Mean-diff by layer (Qwen3-32B suffix_marker, CPU)** -- completed 2026-03-22 ~22h20. Monotonic L2 increase L0→L62 (surface feature signature). 0/5 top-5 overlap with GCM. GCM real and permuted top-5 identical. Spearman 0.413 (ambiguous). Script: `15_mean_diff_heads.py`.
+- [x] **Llama-3-8B full overnight chain (P0→P1→P2→P3)** -- completed 2026-03-22 22:31 UTC. **DEVASTATING RESULT: Synonym finding RETRACTED.** Re-extraction synonym AUC 0.574 (was 0.755), delta +0.005 vs tfidf (was +0.186). P1 ablation: total positive drop = 0.0. P2 cosine: L3 direction local, orthogonal by mid-layers. P3 steering: tautological (KL=1.853). All non-synonym methods also degraded (pipeline config difference: `use_chat_template=false`). Project now has zero confirmed positive interpretability findings. Scripts: `13_layerwise_ablation.py`, `14_probe_direction_analysis.py`, `16_probe_steer.py`, `run_overnight_chain.sh`.
