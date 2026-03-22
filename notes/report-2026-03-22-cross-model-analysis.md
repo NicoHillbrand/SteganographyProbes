@@ -1,5 +1,7 @@
 # Cross-Model Comparative Analysis: Steganography Probes on Llama-3-8B vs Qwen3-32B
 
+> **Update (2026-03-22 audit):** Qwen3-32B game_scenarios_v2 results are now available: 3/1000 stego keyword, 4/1000 clean keyword (null behavioral signal, inverted). The stego_vs_clean probe results for suffix_marker and whitespace have significant caveats (likely detecting surface features, no text baseline). See [pipeline-audit-2026-03-22.md](pipeline-audit-2026-03-22.md) for the current source of truth on claim validity.
+
 **Date:** 2026-03-22
 **Scope:** Full comparative analysis of all completed runs across both models, all datasets, and all probe types.
 

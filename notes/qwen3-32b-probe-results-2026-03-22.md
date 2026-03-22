@@ -1,5 +1,7 @@
 # Qwen3-32B Steganography Probe Results -- 2026-03-22
 
+> **Update (2026-03-22 audit):** The stego_vs_clean probe results added after this report was originally written have significant caveats. The suffix_marker probe (AUC 0.929) likely detects the literal `+++` token (L0 AUC already 0.858, no text baseline run). The whitespace probe (AUC 0.826) likely detects formatting differences (newlines/tabs). See [pipeline-audit-2026-03-22.md](pipeline-audit-2026-03-22.md) for full analysis. game_scenarios_v2 inference is now complete (3/1000 stego kw, 4/1000 clean kw -- null behavioral signal across all 5 Redwood methods).
+
 ## Summary
 
 | Metric | Suffix Marker | Whitespace |
