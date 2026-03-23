@@ -1,3 +1,5 @@
+> **Superseded by:** [final-analysis-report.md](final-analysis-report.md) (2026-03-23) — the definitive single source of truth for all findings.
+
 # Pivoting Your Steganography‑Interpretability Hackathon Toward the Highest‑Value Results
 
 ## Crux assumptions and the cheapest ways to check them

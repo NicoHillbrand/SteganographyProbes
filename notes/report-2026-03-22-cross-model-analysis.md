@@ -1,3 +1,5 @@
+> **Superseded by:** [final-analysis-report.md](final-analysis-report.md) (2026-03-23) — the definitive single source of truth for all findings.
+
 # Cross-Model Comparative Analysis: Steganography Probes on Llama-3-8B vs Qwen3-32B
 
 > **Update (2026-03-22 audit):** Qwen3-32B game_scenarios_v2 results are now available: 3/1000 stego keyword, 4/1000 clean keyword (null behavioral signal, inverted). The stego_vs_clean probe results for suffix_marker and whitespace have significant caveats (likely detecting surface features, no text baseline). See [pipeline-audit-2026-03-22.md](pipeline-audit-2026-03-22.md) for the current source of truth on claim validity.

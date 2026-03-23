@@ -1,4 +1,6 @@
 
+> **All runs below have been analysed and incorporated into the definitive report: [notes/final-analysis-report.md](final-analysis-report.md) (2026-03-23).**
+
 ---
 ## 2026-03-22T17:17:13Z | data/Qwen3-32B/runs/2026-03-22_game_scenarios_v2
 

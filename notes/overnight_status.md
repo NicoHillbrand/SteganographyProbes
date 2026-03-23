@@ -1,3 +1,5 @@
+> **Final analysis:** [final-analysis-report.md](final-analysis-report.md) (2026-03-23) incorporates all overnight results.
+
 # Overnight Chain Status — Sun Mar 22 23:02:44 UTC 2026
 Chain started at Sun Mar 22 23:02:44 UTC 2026
 

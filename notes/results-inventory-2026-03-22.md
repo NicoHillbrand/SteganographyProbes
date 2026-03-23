@@ -1,3 +1,5 @@
+> **Superseded by:** [final-analysis-report.md](final-analysis-report.md) (2026-03-23) — the definitive single source of truth for all findings.
+
 # Results Inventory & Pipeline Operations Guide
 
 **Date:** 2026-03-22

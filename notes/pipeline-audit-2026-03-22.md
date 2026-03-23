@@ -1,3 +1,5 @@
+> **Superseded by:** [final-analysis-report.md](final-analysis-report.md) (2026-03-23) — the definitive single source of truth for all findings.
+
 # Pipeline Audit -- 2026-03-22
 
 **Scope:** Full review of all pipeline scripts (05-12), all probe results, GCM code, dataset generators, and existing notes. Every claim below was verified against actual data on disk.
