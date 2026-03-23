@@ -1,0 +1,29 @@
+{
+    "args": {
+        "dataset_tag": "suffix_marker",
+        "num_samples": -1,
+        "val_num_samples": -1,
+        "k_pct": 10,
+        "alpha": 1.0,
+        "max_gen_tokens": 100,
+        "model_id": "Qwen/Qwen3-32B",
+        "cache_dir": "/home/ubuntu/.cache/huggingface/hub"
+    },
+    "git_sha": "7534ede969ea8b014c6987f2ac83150553709020",
+    "timestamp": "2026-03-23T03:05:25.795560+00:00",
+    "python_version": "3.12.3 (main, Jan 22 2026, 20:57:42) [GCC 13.3.0]",
+    "torch_version": "2.7.0",
+    "heads_file": "/home/ubuntu/SteganographyProbes/data/Qwen3-32B_top10_stego_heads_suffix_marker_new.json",
+    "steering_vectors_file": "/home/ubuntu/SteganographyProbes/data/Qwen3-32B_stego_steering_vectors_suffix_marker_new.pt",
+    "num_heads_used": 409,
+    "alpha": 1.0,
+    "pre_steering": {
+        "attack_success_rate": 0.0,
+        "avg_log_prob_of_attack_signal": -32.1266875
+    },
+    "post_steering": {
+        "attack_success_rate": 0.0,
+        "avg_log_prob_of_attack_signal": -32.793
+    },
+    "kl_divergence": 0.06891748046875
+}
