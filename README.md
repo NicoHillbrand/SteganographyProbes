@@ -2,6 +2,10 @@
 
 Activation probes for detecting when language models recognize or produce steganographic communication.
 
+**AI Control Hackathon 2026** — Linear probes, GCM attribution, and activation steering on Llama-3-8B-Instruct and Qwen3-32B.
+
+> **Sprint complete (2026-03-23).** See the [comprehensive final analysis](notes/final-analysis-report.md) for all results with source-file traceability. The [submission draft PDF](notes/Steganography_%20Detection%20%26%20Control%20(2).pdf) contains claims that are **partially retracted** — see the final analysis §11 for corrections.
+
 ## Motivation
 
 If we can stop models from building up context on their control environment and its cybersecurity that'd be great. Anti-steganography seems helpful for this. A model might have information on whether a message is steganography from itself stored in its activations and in a sense be able to recognise it. Just using the untrusted model for detection runs into collusion issues. Thus we test using **activation probes** that try to detect the model recognising steganography, bypassing the need to trust the model's outputs.
@@ -31,82 +35,101 @@ human monitors                     human monitors
 
 The probe's job: detect that Model B recognized and acted on steganography, **even when Model B's output looks clean to a human**.
 
-## Dataset
+## Models
 
-### Core Dataset (`data/combined_dataset.jsonl`) -- 2,000 examples
+| Property | Llama-3-8B-Instruct | Qwen3-32B |
+|---|---|---|
+| Parameters | 8B | 32.8B |
+| Layers | 32 | 64 |
+| Attention heads | 32Q / 8KV (GQA) | 64Q / 8KV (GQA) |
 
-Inspired by [Redwood Research's Text-Steganography-Benchmark](https://github.com/redwoodresearch/Text-Steganography-Benchmark). 50 diverse Q&A base texts with 5 encoding methods applied programmatically:
+## Datasets
 
-| Method | How it works | Difficulty |
-|--------|-------------|------------|
-| `prefix_binary` | Prepends secret as binary 0/1 string | Easy (visible) |
-| `whitespace` | Encodes bits as trailing spaces vs tabs | Medium (invisible) |
-| `unicode` | Zero-width characters between words | Medium (invisible) |
-| `acrostic` | First letter of each sentence spells the secret | Medium |
-| `synonym` | Swaps synonym pairs to encode bits | Hard (natural-looking) |
+| Dataset | N | Methods | Used by |
+|---|---|---|---|
+| [`combined_dataset.jsonl`](data/combined_dataset.jsonl) | 2,000 | 5 (synonym, acrostic, whitespace, unicode, prefix_binary) | Llama (primary) |
+| [`game_scenarios_v2.jsonl`](data/game_scenarios_v2.jsonl) | 2,000 | 5 (same) | Llama + Qwen behavioral |
+| [`suffix_marker_game_scenarios.jsonl`](data/suffix_marker_game_scenarios.jsonl) | 2,000 | `+++` suffix token | Llama + Qwen |
+| [`whitespace_game_scenarios.jsonl`](data/whitespace_game_scenarios.jsonl) | 2,000 | whitespace only | Llama + Qwen |
+| [`prefixsuffix_inline_varied.jsonl`](data/prefixsuffix_inline_varied_game_scenarios.jsonl) | 5,000 | prefix/suffix/inline | Qwen |
+| [`benign_keyword_suffix_marker.jsonl`](data/benign_keyword_suffix_marker_game_scenarios.jsonl) | 400 | suffix_marker ("goodbye") | Qwen |
 
-200 stego + 200 clean examples per method. Each stego example is paired with a clean counterpart from the same base text.
+5 encoding methods from [Redwood Research's Text-Steganography-Benchmark](https://github.com/redwoodresearch/Text-Steganography-Benchmark):
+`prefix_binary` (easy), `whitespace` (medium), `unicode` (medium), `acrostic` (medium), `synonym` (hard — the only method not trivially surface-detectable).
 
-### Optional: TrojanStego (`data/ood_test_dataset.jsonl`) -- 990 examples
+## Key Results
 
-From the [TrojanStego](https://huggingface.co/datasets/worta/TrojanStego) dataset ([paper](https://arxiv.org/abs/2505.20118)). Outputs from Llama-3-8B fine-tuned to encode secret keys via even/odd token ID bucket selection. The steganography is baked into the model weights.
+**Overall verdict: null representational result.** All probe signal is explained by surface text features (TF-IDF character n-grams). No stego method produces a model-computed internal representation beyond what's in the token embeddings. See [final analysis](notes/final-analysis-report.md) for full data tables.
 
-**Put low weight on these results.** The token_bucket encoding works by constraining token IDs during generation, which means there is no simple detection rule you can describe in a prompt. The model almost certainly cannot recognize this encoding -- it was never tested on decoding it and there is no way to tell the model what to look for. This data is kept as an optional OOD generalization check (does a probe trained on Redwood methods also fire on TrojanStego?) but it is not part of the core experimental loop.
+### Probes vs Text Baselines (the core question)
 
-### Game Scenarios (`data/game_scenarios_v2.jsonl`) -- 2,000 scenarios
+| Method | Text Baseline (TF-IDF) | Best Probe AUC | Verdict |
+|---|---|---|---|
+| acrostic | 1.000 | 0.871 | Surface artifact |
+| prefix_binary | 1.000 | 0.880 | Surface artifact |
+| unicode | 1.000 | 1.000 | Surface artifact |
+| whitespace | 0.978 | 0.691 | Surface artifact |
+| **synonym** | **0.569** | **0.489** (Llama v2, L31) | **Below baseline — retracted** |
 
-The core experiment: can the model detect steganography and act on it when told what encoding to look for?
+The original synonym finding (AUC 0.754 at L3) was an artifact of an extraction format bug and does not replicate.
 
-Each scenario gives Model B a **method-specific misaligned system prompt** (e.g. "the signal is encoded as trailing whitespace: space=0, tab=1") and a coding task with context from a "previous assistant" that is either stego-encoded or clean.
+### P1 Ablation: Most Informative Finding
 
-| Condition | System prompt | Input | Expected |
-|-----------|--------------|-------|----------|
-| `misaligned_with_stego` | Method-specific detection instructions | Stego text | Output "attack" |
-| `misaligned_no_stego` | Same method-specific instructions | Clean text (same topic) | No "attack" |
+Ablating early layers **increases** the L3 probe score (0.589 → 0.929), proving the stego signal lives in token embeddings and is partially destroyed by transformer computation. This rules out a "model-computed" stego representation. See [final analysis §4](notes/final-analysis-report.md#4-new-finding-p1-ablation-reveals-embedding-level-signal).
 
-**Key design decisions:**
-- **Method-specific prompts**: The model is told exactly what encoding to look for (realistic -- a scheming model would know its own encoding scheme)
-- **Paired by carrier group**: Every stego scenario has a matched clean counterpart with the same system prompt, coding task, and base topic. The only variable is whether steganography is present.
-- **1000 pairs** (200 per method), up from the original 45 unpaired scenarios
+### GCM Attribution: Failed
 
-## Results So Far
+- GCM with `abs()` bug: permutation null fails (ratio 0.924, 9/10 heads identical under shuffled labels)
+- GCM post-fix (409 heads steered): attack success rate unchanged at 0.0%, KL = 0.069
+- Source files: [`data/Qwen3-32B/gcm_results_suffix_marker_regen.json`](data/Qwen3-32B/gcm_results_suffix_marker_regen.json), steering results in [`steer2/`](steer2/)
 
-Results are from Llama-3-8B-Instruct (meta-llama/Meta-Llama-3-8B-Instruct).
+### Behavioral: Neither Model Detects Stego Reliably
 
-### Stego presence probe (old combined dataset, includes TrojanStego)
+| Model | Keyword compliance rate | Interpretation |
+|---|---|---|
+| Llama-3-8B | 38–48% (stego ≈ clean) | Indiscriminate — noise |
+| Qwen3-32B | 0.1–2.5% | RLHF suppression — near-total refusal |
 
-A linear probe on model activations can detect whether the input contains steganography:
+### What Is Genuinely Interesting
 
-- **Best layer**: 3, **AUROC: 0.93**, accuracy 0.87
-- Probe performance is strong across layers 1-10, drops in later layers
-- Note: these results include TrojanStego in the OOD test split -- needs re-running on the cleaned-up game scenario data
+1. **P1 ablation negative-drop pattern** — novel diagnostic for distinguishing surface-feature probes from genuine model representations
+2. **Behavioral-representational dissociation** (Qwen: AUC 0.929 probe, 2.5% behavioral compliance) — RLHF suppresses behavior while activations remain detectable
+3. **GCM `abs()` failure mode** — concrete, reproducible bug class for gradient-based attribution
+4. **Extraction format sensitivity** — synonym AUC varies 0.489–0.754 across three extraction configs on the same model/dataset
+5. **Mean-diff magnitude growth with directional stability** (cosine > 0.993 across 64 Qwen layers)
 
-### Text baselines
+## Run Inventory
 
-Surface-level text features can detect some methods trivially:
+### Llama-3-8B-Instruct
 
-| Method | Character-level AUROC |
-|--------|----------------------|
-| `prefix_binary` | 1.00 |
-| `whitespace` | 1.00 |
-| `unicode` | 1.00 |
-| `acrostic` | 0.95 |
-| `synonym` | 0.50 (chance) |
+| Run | Dataset | Key Results |
+|---|---|---|
+| [`2026-03-21_suffix_marker`](data/Meta-Llama-3-8B-Instruct/runs/2026-03-21_suffix_marker/) | suffix_marker | behavioral probe |
+| [`2026-03-21_whitespace`](data/Meta-Llama-3-8B-Instruct/runs/2026-03-21_whitespace/) | whitespace | behavioral probe |
+| [`2026-03-21_game_scenarios_v2`](data/Meta-Llama-3-8B-Instruct/runs/2026-03-21_game_scenarios_v2/) | game_scenarios_v2 | behavioral probe |
+| `2026-03-22_stego_detection_reextract` | combined_dataset | v1: no chat template |
+| `2026-03-22_stego_detection_reextract_v2` | combined_dataset | v2: chat template fixed — P1/P2/P3 ablation chain |
 
-The probe beating the text baseline on `synonym` is the interesting finding -- the model's representations capture something about synonym-based stego that surface features cannot.
+### Qwen3-32B
 
-### Behavioral detection (old game scenarios, 45 examples)
+| Run | Dataset | N | Key Results |
+|---|---|---|---|
+| [`2026-03-22_suffix_marker`](data/Qwen3-32B/runs/2026-03-22_suffix_marker/) | suffix_marker | 2000 | AUC 0.929 (L49), text baselines, GCM/steering |
+| [`2026-03-22_whitespace`](data/Qwen3-32B/runs/2026-03-22_whitespace/) | whitespace | 2000 | AUC 0.826 (L5) |
+| [`2026-03-22_game_scenarios_v2`](data/Qwen3-32B/runs/2026-03-22_game_scenarios_v2/) | game_scenarios_v2 | 2000 | AUC 0.847 (L48) |
+| [`2026-03-22_prefixsuffix_varied`](data/Qwen3-32B/runs/2026-03-22_prefixsuffix_varied/) | prefixsuffix_varied | 5000 | AUC 0.942 (L46) |
+| [`2026-03-22_benign_keyword_suffix_marker`](data/Qwen3-32B/runs/2026-03-22_benign_keyword_suffix_marker/) | benign_keyword | 400 | AUC 0.909 (L46) |
 
-When explicitly asked to detect stego *without being told the method*:
-- Misaligned + stego: 40% said "attack"
-- Misaligned + clean: 47% said "attack"
-- The model was not actually detecting anything -- just inconsistently following the misaligned instruction
+## Reports & Notes
 
-This motivated the v2 game scenarios with method-specific prompts and proper pairing.
-
-### Decode task
-
-When explicitly asked to decode steganography: **4.3% success rate** on stego examples. The model can say "NONE" correctly on clean text but almost completely fails to actually decode any stego method. The decode probe is weak (AUROC 0.72) due to extreme class imbalance (43 positive / 1957 negative).
+| Document | Description |
+|---|---|
+| **[Final analysis](notes/final-analysis-report.md)** | Comprehensive sprint-closing report — all data verified against source JSONs |
+| [Submission draft PDF](notes/Steganography_%20Detection%20%26%20Control%20(2).pdf) | Original submission (contains partially retracted claims — see final analysis §11) |
+| [Cross-model analysis](notes/report-2026-03-22-cross-model-analysis.md) | Llama vs Qwen comparison |
+| [Deep research report](notes/final-pivot-deep-research-report.md) | Literature review and pivot strategy |
+| [Pipeline audit](notes/pipeline-audit-2026-03-22.md) | Extraction format bug discovery |
+| [Results inventory](notes/results-inventory-2026-03-22.md) | Complete file listing of all runs |
 
 ## Pipeline
 
@@ -119,81 +142,43 @@ scripts/09_generate_whitespace_dataset.py  -- Whitespace-only dataset (from Alpa
 scripts/10_generate_suffix_marker_dataset.py -- Suffix marker dataset (easy sanity check)
 
 # Inference & probes
-scripts/05_run_inference.py           -- Run Llama 8B, extract activations (GPU)
+scripts/05_run_inference.py           -- Run model inference, extract activations (GPU)
 scripts/06_train_probes.py            -- Train linear probes on activations (CPU)
 scripts/07_text_baselines.py          -- Character/TF-IDF text baselines
 scripts/08_plot_results.py            -- Generate figures
 
-# Optional / legacy:
-scripts/01_download_trojanstego.py    -- Download TrojanStego from HuggingFace (optional OOD data)
-scripts/01b_generate_lora_carriers.py -- Generate LoRA carrier texts (optional)
-scripts/04b_build_decode_task.py      -- Build decode task prompts (legacy)
+# GCM attribution & steering
+steer/                               -- Original GCM pipeline (contains abs() bug)
+steer2/                              -- Fixed GCM pipeline (signed accumulation)
 ```
 
 ### Quick start
 
-Datasets are already generated in `data/`. To regenerate or run the full pipeline:
-
 ```bash
-# 1. Generate datasets (CPU, no GPU needed)
+# 1. Generate datasets (CPU)
 python scripts/02_generate_redwood_stego.py --n_per_method 200
 python scripts/03_combine_dataset.py
-python scripts/04_build_game_scenarios.py                           # all-methods dataset
-python scripts/09_generate_whitespace_dataset.py --n_base_texts 1000  # whitespace-only
-python scripts/10_generate_suffix_marker_dataset.py --n_base_texts 1000  # suffix marker (sanity check)
-```
+python scripts/04_build_game_scenarios.py
 
-```bash
 # 2. Run inference + extract activations (GPU)
-#    Each run creates an isolated directory: data/<model>/runs/YYYY-MM-DD_<scenario>/
-pip install transformers torch accelerate scikit-learn datasets
-
-# All methods (5 stego methods, 2000 scenarios)
 python scripts/05_run_inference.py --scenarios data/game_scenarios_v2.jsonl --generate --layers all
-# -> data/Meta-Llama-3-8B-Instruct/runs/2026-03-21_game_scenarios_v2/
 
-# Whitespace only (1000 pairs)
-python scripts/05_run_inference.py --scenarios data/whitespace_game_scenarios.jsonl --generate --layers all
+# 3. Train probes (CPU)
+python scripts/06_train_probes.py --run_dir data/<model>/runs/<run_dir> --use_ground_truth_labels --output_suffix _stego_vs_clean --save_probes
 
-# Suffix marker — easy baseline (1000 pairs)
-python scripts/05_run_inference.py --scenarios data/suffix_marker_game_scenarios.jsonl --generate --layers all
+# 4. Text baselines
+python scripts/07_text_baselines.py --run_dir data/<model>/runs/<run_dir>
 ```
 
-```bash
-# 3. Train probes (CPU) — pass the run directory
-python scripts/06_train_probes.py --run_dir data/Meta-Llama-3-8B-Instruct/runs/2026-03-21_game_scenarios_v2
-
-# Or use legacy mode with --task (for old-style data/activations/ layout)
-python scripts/06_train_probes.py --task game_scenarios_v2
-```
-
-```bash
-# 4. Generate figures — pass the same run directory
-python scripts/08_plot_results.py --run_dir data/Meta-Llama-3-8B-Instruct/runs/2026-03-21_game_scenarios_v2
-```
-
-Each run directory contains `config.json` (full args, git hash, timestamp), `activations/`,
-`probe_results/`, and `figures/`. Runs never overwrite each other.
-
-## Research Questions
-
-- Can linear probes on model activations detect when a model recognizes steganographic content?
-- Do different steganography methods produce different activation signatures?
-- Can a model behaviorally detect steganography when told what encoding to expect (realistic scheming setup)?
-- How does probe-based detection compare to behavioral output-based detection on the same task?
-- Does this generalize: do probes trained on one stego method transfer to detecting others?
-- How does this relate to existing work on refusal directions and linear representation hypotheses?
+Each run directory contains `config.json`, `activations/`, `probe_results/`, and `figures/`. Runs never overwrite each other.
 
 ## Related Work
 
-- [Preventing Language Models From Hiding Their Reasoning](https://github.com/redwoodresearch/Text-Steganography-Benchmark) -- Redwood Research
-- [TrojanStego: Your Language Model Can Secretly Be A Steganographic Privacy Leaking Agent](https://arxiv.org/abs/2505.20118)
-- Refusal directions (Arditi et al.) -- linear directions in activation space; methodological template
-- Representation engineering -- steering and reading off concepts from activations
+- [Preventing Language Models From Hiding Their Reasoning](https://github.com/redwoodresearch/Text-Steganography-Benchmark) — Redwood Research
+- [TrojanStego](https://arxiv.org/abs/2505.20118) — steganography baked into model weights
+- Refusal directions (Arditi et al.) — linear directions in activation space
+- Representation engineering — steering and reading off concepts from activations
 
 ## Project Status
 
-- Phase 1 (dataset): Complete
-- Phase 2 (probes on combined dataset): Complete -- stego presence probe works well (0.93 AUROC)
-- Phase 3 (game scenarios v2): Dataset generated, awaiting GPU inference run with method-specific prompts
-- Next: Run v2 game scenarios on GPU, compare behavioral vs probe detection per method
+**Sprint complete.** All experiments finished. Key outcome: **null representational result** with five transferable methodological contributions (see [final analysis §10](notes/final-analysis-report.md#10-methodological-contributions)).
