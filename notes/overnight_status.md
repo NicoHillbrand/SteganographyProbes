@@ -223,3 +223,84 @@ interpretability findings.** All probe signals are surface text artifacts.
 - `notes/final-analysis-report.md` — complete synthesis
 - `notes/pipeline-audit-2026-03-22.md` — all retracted claims with evidence
 - `notes/runs_to_analyse.md` — run backlog
+
+---
+## Monitor check: 2026-03-23T02:03:20Z
+GPU: 0 MiB, 96768 MiB, 0 %
+tmux: no sessions
+overnight_chain: [23:17:23 UTC] === ALL STEPS COMPLETE ===
+p0_inference: ============================================================
+p0_probes: Results saved to /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/probe_results/probe_results_stego_vs_clean.json
+p1_ablation: Results saved to /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/probe_results_stego_vs_clean/p1_ablation_results.json
+p2_probe_direction: → LOW: layer-specific signals, not a single unified direction
+p3_steer_alpha1: Results saved to /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/probe_results_stego_vs_clean/p3_probe_steer_results.json
+p3_steer_alpha2: Results saved to /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/probe_results_stego_vs_clean/p3_probe_steer_results.json
+p4_mean_diff: Results saved to /home/ubuntu/SteganographyProbes/data/Qwen3-32B_mean_diff_by_layer_suffix_marker.json
+Run dir found: /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2
+  MISSING: probe_results_stego_vs_clean.json
+  EXISTS: p1_ablation_results.json
+  EXISTS: p2_probe_direction_analysis.json
+  EXISTS: p3_probe_steer_results.json
+  P1 baseline score: 0.5886510220285905
+  P1 localized: False
+  P1 top3 layers: [4, 5, 6]
+  P3 causal_confirmed: True
+  P3 mean_downstream_delta: 0.23816328199205664
+  P3 kl_divergence: 0.16139403730630875
+P4 top5 mean-diff layers: [62, 61, 60, 59, 58]
+P4 rank_corr vs GCM: 0.413
+P4 top5 overlap vs GCM: 0
+
+---
+## Monitor check: 2026-03-23T03:47:09Z
+GPU: 63797 MiB, 32972 MiB, 47 %
+tmux: no sessions
+overnight_chain: [23:17:23 UTC] === ALL STEPS COMPLETE ===
+p0_inference: ============================================================
+p0_probes: Results saved to /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/probe_results/probe_results_stego_vs_clean.json
+p1_ablation: Results saved to /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/probe_results_stego_vs_clean/p1_ablation_results.json
+p2_probe_direction: → LOW: layer-specific signals, not a single unified direction
+p3_steer_alpha1: Results saved to /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/probe_results_stego_vs_clean/p3_probe_steer_results.json
+p3_steer_alpha2: Results saved to /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/probe_results_stego_vs_clean/p3_probe_steer_results.json
+p4_mean_diff: Results saved to /home/ubuntu/SteganographyProbes/data/Qwen3-32B_mean_diff_by_layer_suffix_marker.json
+Run dir found: /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2
+  MISSING: probe_results_stego_vs_clean.json
+  EXISTS: p1_ablation_results.json
+  EXISTS: p2_probe_direction_analysis.json
+  EXISTS: p3_probe_steer_results.json
+  P1 baseline score: 0.5886510220285905
+  P1 localized: False
+  P1 top3 layers: [4, 5, 6]
+  P3 causal_confirmed: True
+  P3 mean_downstream_delta: 0.23816328199205664
+  P3 kl_divergence: 0.16139403730630875
+P4 top5 mean-diff layers: [62, 61, 60, 59, 58]
+P4 rank_corr vs GCM: 0.413
+P4 top5 overlap vs GCM: 0
+
+---
+## Monitor check: 2026-03-23T05:17:08Z
+GPU: 63798 MiB, 32971 MiB, 33 %
+tmux: no sessions
+overnight_chain: [23:17:23 UTC] === ALL STEPS COMPLETE ===
+p0_inference: ============================================================
+p0_probes: Results saved to /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/probe_results/probe_results_stego_vs_clean.json
+p1_ablation: Results saved to /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/probe_results_stego_vs_clean/p1_ablation_results.json
+p2_probe_direction: → LOW: layer-specific signals, not a single unified direction
+p3_steer_alpha1: Results saved to /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/probe_results_stego_vs_clean/p3_probe_steer_results.json
+p3_steer_alpha2: Results saved to /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/probe_results_stego_vs_clean/p3_probe_steer_results.json
+p4_mean_diff: Results saved to /home/ubuntu/SteganographyProbes/data/Qwen3-32B_mean_diff_by_layer_suffix_marker.json
+Run dir found: /home/ubuntu/SteganographyProbes/data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2
+  MISSING: probe_results_stego_vs_clean.json
+  EXISTS: p1_ablation_results.json
+  EXISTS: p2_probe_direction_analysis.json
+  EXISTS: p3_probe_steer_results.json
+  P1 baseline score: 0.5886510220285905
+  P1 localized: False
+  P1 top3 layers: [4, 5, 6]
+  P3 causal_confirmed: True
+  P3 mean_downstream_delta: 0.23816328199205664
+  P3 kl_divergence: 0.16139403730630875
+P4 top5 mean-diff layers: [62, 61, 60, 59, 58]
+P4 rank_corr vs GCM: 0.413
+P4 top5 overlap vs GCM: 0

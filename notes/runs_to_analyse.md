@@ -67,3 +67,15 @@
 - data/Qwen3-32B_mean_diff_by_layer_suffix_marker.json
 
 **Status:** done: **SYNONYM RETRACTED — fails replication.** Re-extraction synonym AUC=0.574 (was 0.754), delta +0.005 vs tfidf (was +0.186). All methods degraded (use_chat_template=false vs likely true in old run). P1 ablation: total_drop=0.0, L3 probe baseline 0.436. P2: direction local (cos<0.2 by L9). P3: tautological steering (KL=1.853). P4 mean-diff: Qwen suffix_marker monotonic L2 increase, 0/5 overlap with GCM. **Project now has zero confirmed positive interpretability findings.**
+
+---
+## 2026-03-22T23:17:23Z | data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2
+
+**What:** stego_detection_reextract_v2: Llama-3-8B chat_template activations + probes + P1 ablation + P2 cosine + P3 steering (alpha=1.0,2.0)
+
+**Files to analyse:**
+- data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/probe_results/probe_results_stego_vs_clean.json
+
+- data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/config.json
+
+**Status:** done: **SYNONYM DEFINITIVELY RETRACTED.** v2 (--use_chat_template, enable_thinking bug fixed) synonym AUC=0.489, below TF-IDF 0.569. P1: total_drop=0.0 (localized=False). P2: mean_cos=0.283, layer-specific only. P3: alpha=2.0 causal_confirmed=True, delta=+0.238, KL=0.161 (valid calibration, but direction from surface-dominated pooled probe). See notes/final-analysis-report.md for full synthesis.
