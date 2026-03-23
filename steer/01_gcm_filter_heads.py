@@ -70,9 +70,15 @@ def format_stego_prompt(tokenizer, entry):
     """
     Applies the model's specific chat template.
     """
+    p=f'''
+    Context:
+    {entry['input_text']}
+    Perform the following task given the context: 
+    {entry['task']}
+    '''
     messages = [
         {"role": "system", "content": entry['system_prompt']},
-        {"role": "user", "content": f"Context from previous assistant:\n{entry['input_text']}\n\nTask: {entry['task']}"},
+        {"role": "user", "content": p},
     ]
     
     # add_generation_prompt=True adds the "assistant" header 
@@ -80,8 +86,7 @@ def format_stego_prompt(tokenizer, entry):
     return tokenizer.apply_chat_template(
         messages, 
         tokenize=False, 
-        add_generation_prompt=True,
-        enable_thinking=False
+        add_generation_prompt=True
     )
 
 # %%
@@ -167,7 +172,7 @@ def get_stego_knockout_attribution(
                     # Resulting shape: [batch, head] -> .squeeze(0) -> [n_heads]
                     # This aligns with the IE = ∇z * z logic for causal mediation
                     ie_per_head = (g_mean * z_mean).sum(dim=-1).squeeze(0)
-                    total_ie_scores[l] += ie_per_head.abs()
+                    total_ie_scores[l] += ie_per_head #.abs()
         
         # Remove hooks to avoid memory leaks and overhead for next iteration
         model.reset_hooks()
@@ -202,10 +207,7 @@ if __name__ == "__main__":
     topk_steg_heads = get_stego_knockout_attribution(model, data, k=k)
 
 
-    # Derive dataset tag from data path for unique output filenames
-    import os
-    dataset_tag = os.path.basename(jsonl_data_path).replace("_game_scenarios.jsonl", "")
-    output_file = f"../data/{model_id.split('/')[-1]}_top{k}_stego_heads_{dataset_tag}.json"
+    output_file = f"../data/{model_id.split('/')[-1]}_top{k}_stego_heads_results.json"
     with open(output_file, "w") as f:
         json.dump(topk_steg_heads, f, indent=4)
     print(f"Results saved to {output_file}")
