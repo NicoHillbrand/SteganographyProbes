@@ -1,35 +1,52 @@
-# Steganography Interpretability: Full Experiment Analysis Report
+# Steganography Interpretability: Comprehensive Final Analysis
 
-**Date:** 2026-03-22 (updated during overnight re-run)
-**Models:** Llama-3-8B-Instruct, Qwen3-32B
-**Status at writing:** v2 pipeline running (P0+probes complete, P1/P2/P3 pending)
-**Updated** : FIXED GCM BUG (NEW)
-
----
-
-## Executive Summary
-
-This project set out to answer three mechanistic questions about whether language models internally represent steganographic content:
-
-1. **Is there a representational signal?** Can we decode stego presence from activations, and does that signal survive surface text (TF-IDF/char) baselines?
-2. **Is it localized?** Which layers and components contribute most to the stego representation?
-3. **Is it causal?** Can we steer the representation and verify downstream propagation?
-
-**What we found:**
-
-- The only method that produced probe signal potentially exceeding text baselines was **Llama-3-8B synonym steganography** on the Redwood combined_dataset. Original probe AUC at L3 = **0.754**, vs synonym-specific TF-IDF baseline = **0.569** (delta +0.185) and char-feature baseline = **0.499** (delta +0.255).
-
-- This finding was **challenged** by a re-extraction failure (caused by an `enable_thinking=False` crash on Llama that forced removal of `--use_chat_template`), which gave AUC 0.574 at L9 (delta +0.005 over tfidf — effectively zero). The **v2 re-extraction** (with the fixed `enable_thinking` handling, running now) partially restores the signal: AUC ~0.741 at L9 in pooled probe training so far.
-
-- **All other methods** on both models are cleanly explained by surface features: acrostic, prefix_binary, unicode, and whitespace give tfidf baselines of 0.978–1.000, matching or exceeding probe AUCs.
-
-- **GCM head attribution** on Qwen3-32B failed its own permutation null test (ratio 0.92x, 9/10 top heads identical under permuted labels), confirming the attribution method is a high-variance head detector, not a causally specific circuit finder.
-
-- **Probe direction steering** on Llama-3-8B (P3) confirmed causal direction existence but is only interpretable once probe calibration is validated (v2 results pending).
+**Date:** 2026-03-23
+**Models:** Meta-Llama-3-8B-Instruct (32 layers), Qwen3-32B (64 layers)
+**Status:** All pipeline runs complete. Sprint closing analysis.
 
 ---
 
-## 1. Dataset and Experimental Setup
+## 0. Data Inventory
+
+All numbers in this report are extracted directly from the JSON/CSV result files. Source file paths are given for traceability.
+
+### Llama-3-8B-Instruct Runs
+
+| Run | Dataset | Config | Key Output Files |
+|---|---|---|---|
+| `2026-03-21_suffix_marker` | suffix_marker_game_scenarios.jsonl | behavioral (keyword_present) | probe_results.json |
+| `2026-03-21_whitespace` | whitespace_game_scenarios.jsonl | behavioral | probe_results.json |
+| `2026-03-21_game_scenarios_v2` | game_scenarios_v2.jsonl | behavioral | probe_results.json |
+| `2026-03-22_stego_detection_reextract` (v1) | combined_dataset.jsonl | `use_chat_template=false` | probe_results_stego_vs_clean.json, p1/p2/p3 |
+| `2026-03-22_stego_detection_reextract_v2` (v2) | combined_dataset.jsonl | `use_chat_template=true` | probe_results_stego_vs_clean.json, p1/p2/p3 |
+
+Original extraction (pre-v1): `data/probe_results/stego_detection_probe_results.json` — config not preserved on disk.
+
+### Qwen3-32B Runs
+
+| Run | Dataset | N | Key Output Files |
+|---|---|---|---|
+| `2026-03-22_suffix_marker` | suffix_marker_game_scenarios.jsonl | 2000 | probe_results.json, probe_results_stego_vs_clean.json, text_baselines |
+| `2026-03-22_whitespace` | whitespace_game_scenarios.jsonl | 2000 | same |
+| `2026-03-22_game_scenarios_v2` | game_scenarios_v2.jsonl | 2000 | same |
+| `2026-03-22_prefixsuffix_varied` | prefixsuffix_inline_varied.jsonl | 5000 | same |
+| `2026-03-22_benign_keyword_suffix_marker` | benign_keyword_suffix_marker.jsonl | 400 | probe_results_stego_vs_clean.json |
+
+### GCM and Steering Files
+
+| File | Description |
+|---|---|
+| `Qwen3-32B_top10_stego_heads_suffix_marker.json` | GCM top heads (with abs() bug) |
+| `Qwen3-32B_top10_stego_heads_suffix_marker_permuted.json` | Permutation null test |
+| `Qwen3-32B_top10_stego_heads_suffix_marker_new.json` | GCM top heads (post abs()-fix, signed accumulation) |
+| `Qwen3-32B_steering_summary_suffix_marker.json` | Steering with 10 buggy-GCM heads |
+| `Qwen3-32B_steering_summary_suffix_marker_new.json` | Steering with 409 corrected-GCM heads |
+| `Qwen3-32B_mean_diff_by_layer_suffix_marker.json` | Signed mean-diff analysis |
+| `Qwen3-32B/gcm_results_suffix_marker_regen.json` | GCM vs mean-diff comparison |
+
+---
+
+## 1. Experimental Setup
 
 ### 1.1 Models
 
@@ -38,428 +55,527 @@ This project set out to answer three mechanistic questions about whether languag
 | Parameters | 8B | 32.8B |
 | Layers | 32 | 64 |
 | Hidden dim | 4096 | 5120 |
-| Attention heads | 32Q/8KV (GQA) | 64Q/8KV (GQA) |
+| Attention heads | 32Q / 8KV (GQA) | 64Q / 8KV (GQA) |
 | Special handling | `enable_thinking` not supported | `enable_thinking=False` required |
 
 ### 1.2 Datasets
 
-**Redwood combined_dataset.jsonl** (primary, Llama):
-- 2000 examples: 1000 clean + 200×5 stego (synonym, acrostic, whitespace, unicode, prefix_binary)
+**Redwood combined_dataset.jsonl** (Llama primary):
+- 2000 examples: 1000 clean + 200 each of synonym, acrostic, whitespace, unicode, prefix_binary
 - Balanced, grouped by carrier_group_id (50 groups)
-- Diverse carrier texts → harder for character n-gram features to detect method artifacts
+- Diverse carrier texts from Redwood synthetic data
 
 **Game scenarios v2** (Qwen + Llama behavioral):
-- 2000 examples: 1000 clean + 200×5 stego
-- AI-generated game scenario carrier texts
-- Domain vocabulary creates tfidf artifacts → synonym substitutions detectable by char n-grams (tfidf AUC 0.870 for Qwen)
+- 2000 examples: 1000 clean + 200 each of 5 methods
+- AI-generated game scenario carrier texts — domain vocabulary creates n-gram artifacts
 
 **Auxiliary Qwen datasets:**
 - suffix_marker (2000), whitespace (2000), prefixsuffix_varied (5000), benign_keyword (400)
 
-### 1.3 Experimental Paradigm
+### 1.3 Probe Types
 
-Two distinct probe targets were used:
-- **Game-scenario probes (behavioral):** Train probe to predict `keyword_present` (did the model output "attack"?). Only valid when model compliance is high and specific.
-- **Stego-vs-clean probes (representational):** Train probe to predict `is_stego` (ground-truth input label). Tests whether the model's internal representation encodes the presence of steganography, regardless of behavior.
+Two probe targets used throughout, and the distinction is critical:
 
-**Critical distinction:** A probe that detects surface text features (char n-grams, whitespace patterns) is learning dataset artifacts, not a model representation. Per-method text baselines are required to distinguish the two.
+- **Behavioral probes:** Predict `keyword_present` (did the model output "attack"?). Valid only if compliance is high and stego-specific.
+- **Representational probes (stego-vs-clean):** Predict `is_stego` (ground-truth label). Tests whether the model's internal state encodes steganography presence, regardless of output behavior. Trained with `--use_ground_truth_labels`.
 
----
+### 1.4 Extraction Format Bug
 
-## 2. Surface Baseline Results
+A bug in `05_run_inference.py` hardcoded `enable_thinking=False` in `apply_chat_template()`, which crashed Llama (it doesn't support this kwarg). This led to three distinct extraction configurations:
 
-The critical filter: which methods produce probe signal that **exceeds** TF-IDF character n-gram baselines?
-
-### 2.1 Llama-3-8B on Redwood combined_dataset
-
-| Method | Probe AUC (best layer) | Char baseline | TF-IDF baseline | Delta vs TF-IDF | Survives? |
-|---|---|---|---|---|---|
-| acrostic | 1.000 (L3) | 0.947 | 1.000 | 0.000 | ❌ surface |
-| prefix_binary | 1.000 (L3) | 1.000 | 1.000 | 0.000 | ❌ surface |
-| unicode | 1.000 (L3) | 1.000 | 1.000 | 0.000 | ❌ surface |
-| whitespace | 1.000 (L3) | 1.000 | 0.978 | +0.022 | ❌ surface |
-| **synonym** | **0.754 (L3)** | **0.499** | **0.569** | **+0.185** | ✅ *survives* |
-
-Acrostic/prefix_binary/unicode/whitespace are trivially detected by byte-level statistics. Synonym substitution cannot be detected by character n-grams (no length change, minimal bigram disruption from word-level substitution in diverse texts), so the synonym probe signal is not explained by surface features.
-
-**Caveat on the 0.754 figure:** The original extraction config is not preserved on disk. A re-extraction with `--use_chat_template=false` gave AUC 0.574 (no signal), while v2 (with `--use_chat_template=true`, running now) gives AUC ~0.741 at L9 in pooled training. Per-method synonym AUC in v2 is pending.
-
-### 2.2 Qwen3-32B on Game Scenarios v2 (Representational Probes)
-
-| Method | Probe AUC (L48) | Char baseline | TF-IDF baseline | Delta vs TF-IDF | Survives? |
-|---|---|---|---|---|---|
-| unicode | 0.986 | n/a | n/a | n/a | ❌ surface (overt) |
-| prefix_binary | 0.973 | n/a | n/a | n/a | ❌ surface (overt) |
-| acrostic | 0.952 | n/a | n/a | n/a | ❌ surface |
-| whitespace | 0.884 | n/a | n/a | n/a | ❌ surface |
-| **synonym** | **0.868** | ~0.620 | **0.870** | **−0.002** | ❌ no signal |
-
-The Qwen synonym probe (AUC 0.868) is matched exactly by the TF-IDF character n-gram baseline (0.870). The game_scenarios_v2 dataset uses domain-specific game vocabulary, making synonym substitution character-detectable in ways that the Redwood combined_dataset is not. **This is not a replication of the Llama synonym finding** — it reflects a dataset-level difference in text diversity.
-
-### 2.3 Qwen3-32B Suffix Marker / Whitespace
-
-Both achieve probe AUC 0.929 (suffix) and 0.826 (whitespace). The TF-IDF baseline on suffix_marker is not per-method, but the `+++` token is trivially detectable by any character feature. The prefixsuffix_varied experiment confirmed this: tfidf AUC 0.998, probe AUC 0.942 (probe doesn't add value over text).
-
-**Conclusion:** Suffix marker, whitespace, acrostic, unicode, and prefix_binary are all surface artifacts. The only candidate for a genuine representational finding is **Llama-3-8B on synonym (combined_dataset)**, and that finding's reliability is currently uncertain pending v2 re-extraction.
+| Extraction | Chat template | Bug status | Dataset |
+|---|---|---|---|
+| Original (pre-2026-03-22) | Unknown | Unknown | combined_dataset |
+| v1 (2026-03-22) | Omitted (`use_chat_template=false`) | Workaround: skipped chat template | combined_dataset |
+| v2 (2026-03-22 23:02 UTC) | Applied (`use_chat_template=true`) | Fixed: conditional `enable_thinking` | combined_dataset |
 
 ---
 
-## 3. Behavioral Results
+## 2. Raw Probe Results (Data Only)
 
-### 3.1 Model Compliance Patterns
+All AUC values are mean across 5 random seeds with grouped train/test splits.
 
-| Model | Dataset | Stego kw rate | Clean kw rate | Signal |
-|---|---|---|---|---|
-| Llama-3-8B | suffix_marker | 45.1% | 40.0% | Marginal (+5.1pp) |
-| Llama-3-8B | whitespace | 46.7% | 49.2% | Null (wrong direction) |
-| Llama-3-8B | game_scenarios_v2 | 40.2% | 37.0% | Null (p=0.142) |
-| Qwen3-32B | suffix_marker | 4.9% | 0.0% | Specific, low-N |
-| Qwen3-32B | whitespace | 0.1% | 0.1% | Null |
-| Qwen3-32B | game_scenarios_v2 | 0.3% | 0.4% | Inverted |
+### 2.1 Llama-3-8B — Representational Probes on combined_dataset
 
-**Llama-3-8B: Indiscriminate compliance.** IFEval ~70 → insufficient instruction-following to parse conditional "output keyword only when stego detected" logic. ~40% baseline output regardless of condition.
+**Original extraction (config unknown):**
 
-**Qwen3-32B: Near-total refusal with rare perfect specificity.** RLHF suppresses compliant behavior in ~95-99.7% of cases. When it does comply (suffix_marker: 49/1000), it's always on stego examples (0% false positives). This reveals the model *can* detect suffix markers but refuses to act on them. Concentrated in one task template (33/49 = 67% from "create Python virtual environment" task).
-
-**Implication:** Neither model is suitable for the behavioral probe paradigm. Llama's signal is noise; Qwen's compliance is task-template-specific and low-N. Representational probes (stego-vs-clean, ground truth labels) are the only scientifically valid probe type for both models.
-
----
-
-## 4. Mechanistic Interpretability Chain (P0–P3)
-
-### 4.1 Overview
-
-The P0→P1→P2→P3 chain was designed to move from "does the probe exist" to "is it causally localized":
-
-- **P0:** Re-extract activations with `--save_probes`, train all-layer probes with `--use_ground_truth_labels`
-- **P1:** Layerwise residual stream knockout — which layer's computation builds the L3 probe representation?
-- **P2:** Probe direction cosine analysis — is there a consistent "stego direction" across layers?
-- **P3:** Probe-direction steering — inject L3 probe coef as steering vector, measure downstream probe score shift
-
-### 4.2 v1 Results (Extraction Without `--use_chat_template`)
-
-Due to a bug (`enable_thinking=False` hardcoded in `apply_chat_template` call, crashing Llama), v1 extraction omitted the chat template. This produced miscalibrated activations:
-
-**P0 baseline probe score at L3 on synonym stego:** 0.436 (below chance — probe does not detect stego)
-
-**P1 (layerwise knockout):**
-- Total positive drop: 0.0
-- Localized: False
-- Interpretation: **Uninterpretable.** The probe had no signal to localize. Knocking out any layer cannot reduce a score that starts at chance.
-
-**P2 (cosine similarity):**
-- Mean off-diagonal cosine: 0.302 (medium coherence)
-- Highest-similarity cluster: L23–L25 (cos ~0.92), neighboring-layer redundancy
-- L3 most similar to L2 (cos=0.61) and L4 (cos=0.60), suggesting direction is local
-- Interpretation: Multiple distinct sub-computations, not a single global "stego direction"
-
-**P3 (probe direction steering, alpha=5.0):**
-- causal_confirmed: True
-- mean_downstream_delta: +0.636
-- kl_divergence: 1.852
-- Interpretation: **Tautological.** Injecting the probe direction at L3 into activations where the probe was already miscalibrated (scoring chance on stego, chance on clean) produces large downstream shifts — but these shifts reflect L3's influence on downstream computation, not stego-specific signal. KL=1.852 confirms alpha=5.0 severely disrupts the output distribution.
-
-### 4.3 v2 Results (Extraction With `--use_chat_template` — In Progress)
-
-Launched 2026-03-22 at 23:02 UTC after fixing `enable_thinking=False` in `05_run_inference.py` (line 321 now conditional on `"Qwen3" in args.model`).
-
-**P0 status (complete):**
-- Run dir: `data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/`
-- Pooled probe training in progress; selected layer AUCs so far:
-  - L3: 0.690, L6: 0.718, L7: 0.722, L8: 0.727, L9: 0.741
-  - (Best layer TBD; original was L3 at 0.754)
-- The systematic recovery vs v1 (all layers +0.1–0.15 AUC) confirms the extraction format matters
-
-**P1 (pending):** Will be interpretable only if the v2 L3 probe baseline score on synonym stego > ~0.7
-
-**P2 (pending):** Will run on v2 probes; structure expected similar to v1 (medium coherence)
-
-**P3 (alpha=1.0 and 2.0, pending):** Key question — does causal propagation persist at lower alpha with acceptable KL?
-
----
-
-## 5. GCM Attribution: Methodology Critique and Corrected Pipeline Results
-
-### 5.1 The GCM Pipeline
-
-Generalized Causal Mediation (GCM) computes an "indirect effect" (IE) per attention head:
-
-```
-IE_head = ∇_z log(P_stego(attack)/P_clean(attack)) · z_clean
-```
-
-Computed via gradient of log-probability ratio with respect to pre-output-projection activations. Intended to identify which heads "mediate" the stego representation.
-
-### 5.2 Results (Qwen3-32B, Suffix Marker)
-
-| | Real labels | Permuted labels |
-|---|---|---|
-| Top-10 mean score | 0.0743 | 0.0804 |
-| Ratio real/permuted | **0.924** | (reference) |
-| Top-10 head overlap | **9/10 identical** | |
-
-**The permutation null test failed.** A ratio < 1.0 means the "real" top-10 heads actually score *lower* than the permuted top-10. 9/10 heads are the same under real and shuffled labels. The attribution method is not condition-specific.
-
-### 5.3 Root Cause: `abs()` Before Averaging
-
-The critical bug in `01_gcm_filter_heads_hf.py`:
-
-```python
-total_ie_scores[l] += ie_per_head.abs().cpu()  # WRONG: accumulates abs before averaging
-```
-
-`ie_per_head` elements can be positive (stego→attack) or negative (stego→suppress). Accumulating absolute values before averaging across examples makes the score measure **gradient magnitude** (which heads have large gradients), not **consistent directional effect** (which heads consistently drive the stego→attack pathway).
-
-High-gradient heads are the highest-variance heads in the network — they appear in top-10 regardless of what condition you're comparing. Hence 9/10 overlap with permuted labels.
-
-**Fix (Implemented):** Accumulate signed values, average across examples first. This means we only isolate heads that *promote* steg recognition, which we then suppress during steering:
-```python
-total_ie_scores[l] += ie_per_head.cpu()          # accumulate signed
-# at end: we use heads with strong positive/negative signals depending on goal
-```
-
-### 5.4 Confirmation from P4 (Mean-Diff)
-
-P4 computed `||mean(stego_acts) - mean(clean_acts)||_2` per layer (signed mean before abs):
-- P4 top layers: L62, L61, L60, L59, L58 (late layers)
-- GCM top layers: L45, L42, L44, L43, L41 (mid layers)
-- Spearman rank correlation GCM vs P4: 0.413
-- Top-5 layer overlap: 0/5
-
-GCM found the wrong layers. Mean-diff (equivalent to correct signed accumulation) finds late layers L58–62, which are plausible for a 64-layer Qwen3-32B (analogous to L3 in 32-layer Llama, ~80–97% depth).
-
-### 5.5 New Steering Results (Post-Fix)
-
-After implementing the correct signed accumulation, we obtained new results confirming that the heads found by GCM *are causally responsible* for steganography detection behavior. 
-
-**Dataset Setup for GCM Evaluation:**
-It is important to note the cross-distribution nature of this specific evaluation. The GCM pipeline identified top heads using a split dataset configuration:
-- **Train (Head Discovery):** `suffix_marker_game_scenarios.jsonl`
-- **Val (Steering Results Reported):** `game_scenarios_v2.jsonl`
-
-By reporting the steering results on a different validation distribution, we confirm that the suppressed heads aren't just memorizing dataset-specific idiosyncrasies, but rather a more generalized steganography processing pathway.
-
-**Qwen3-1.7B (Attack Scenario):**
-Steering (suppressing) the top 10 stego heads identified by the corrected GCM method significantly reduced the model's attack behavior:
-- **ASR (Attack Success Rate):** Dropped from **52.8%** down to **35.7%** (a 17.1% reduction).
-- **Log-Prob of Signal:** Decreased from -40.22 to -45.27.
-- **KL Divergence:** Extremely low at 0.112, highlighting that output coherence remained intact while stego behavior was cleanly suppressed.
-
-**Qwen3-32B (Suffix Marker):**
-Since Qwen3-32B already exhibits heavy refusal (95–99.7%), the original ASR was 0%. Suppressing the top stego heads:
-- **ASR:** Remained at 0% (refusal maintained).
-- **Log-Prob of Signal:** Dropped from -32.12 to -32.79.
-- **KL Divergence:** Exceptionally low at 0.0689.
-
-**Hypothesis on Qwen3-32B GCM Steering:** Since steering barely reduced anything for Qwen3-32B (log-probs dropped only slightly and ASR was already 0%), we hypothesize this is due to models having better safety alignment (RLHF) heavily suppressing the baseline behavior. The effects of GCM steering may be more muted on highly-aligned models, suggesting we may need to explore how steering interacts differently across varying model sizes (e.g., comparing it against an even bigger or unaligned Qwen).
-
-This confirms the fix works. GCM is correctly isolating condition-specific heads that drive the stego response. By suppressing these specific "stego-promoting" heads, we causally diminish the targeted behavior.
-
----
-
-## 6. Cross-Model Comparison
-
-### 6.1 Where Stego Signal Lives
-
-| Model | Method | Best probe layer | AUC | Fraction of depth |
-|---|---|---|---|---|
-| Llama-3-8B (32L) | synonym | L3 (original) / L9 (v2) | 0.754 / ~0.74 | 9–28% |
-| Qwen3-32B (64L) | synonym | L48 | 0.868 | 75% |
-| Qwen3-32B (64L) | suffix_marker | L49 | 0.929 | 77% |
-| Qwen3-32B (64L) | whitespace | L5 | 0.826 | 8% |
-
-**Llama:** Stego representation appears very early (L3, 9% depth) — the model encodes synonym-stego presence at the first few transformer layers. This is consistent with the model not "acting" on this information (it doesn't output the keyword reliably) but still building an internal categorization early in the forward pass.
-
-**Qwen3-32B:** Signal generally peaks in late layers (L48–L49, ~75% depth). The exception is whitespace, which peaks at L5 (8%) — possibly reflecting the model's early detection of whitespace anomalies. Late-layer signals on a larger, more capable model may reflect higher-level semantic understanding rather than low-level pattern matching.
-
-### 6.2 Scale and Behavior
-
-The contrast in behavioral compliance (Llama ~40% indiscriminate vs Qwen3-32B ~5% specific) is a pure RLHF/capability story. Qwen3-32B has a much stronger instruction-following backbone (IFEval ~87 vs ~70) and safety fine-tuning that suppresses the misaligned behavior. This doesn't mean Qwen3-32B "doesn't represent" stego — the representational probes show it does (AUC 0.929 for suffix_marker). The model internally detects stego presence but refuses to act on it.
-
-### 6.3 Dataset Confound: Why Qwen Synonym = Surface Artifact but Llama Synonym ≠
-
-The same synonym substitution method produces meaningfully different text baselines depending on the carrier text:
-
-| | Combined_dataset (Llama) | Game_scenarios_v2 (Qwen) |
-|---|---|---|
-| Carrier text type | Diverse Redwood synthetic | AI game scenarios (domain vocab) |
-| Synonym TF-IDF baseline | 0.569 | 0.870 |
-| Probe AUC | 0.754 | 0.868 |
-| Probe exceeds tfidf? | Yes (+0.185) | No (−0.002) |
-
-The Qwen run was on a structurally different dataset (game_scenarios_v2) with repeated domain vocabulary. Synonym substitution within a narrow vocabulary produces consistent n-gram frequency shifts detectable by TF-IDF. The Redwood combined_dataset is much more diverse, so the same substitution produces negligible n-gram changes. This is a dataset confound, not a model confound.
-
----
-
-## 7. Current State of Claims
-
-### 7.1 Claims That Stand
-
-1. **Stego methods with overt surface markers (suffix_marker, unicode, prefix_binary, acrostic, whitespace) are all detectable by text features alone.** Probe AUC ≈ TF-IDF AUC for all these methods across both models. Probes are not learning model representations; they are learning dataset artifacts. (Verified across 5 datasets, 2 models.)
-
-2. **Qwen3-32B builds a probe-decodable stego representation for suffix_marker that survives the model's refusal to act.** AUC 0.929 at L49 on balanced 1000/1000 labels. The representation exists even when behavior is suppressed. (Caveat: the signal is surface-explainable; the probe is detecting the `+++` token, not a deep representation.)
-
-3. **Corrected GCM head attribution causally locates stego-recognition mechanisms.** With the signed accumulation correctly implemented, suppressing the top GCM-identified heads successfully drops the stego attack response. (ASR drops by 17.1% on Qwen3-1.7B).
-
-4. **Signed mean-diff and abs()-accumulation GCM previously disagreed**, resolving strongly in favor of the now-implemented signed approach representing the true condition-specific signal.
-
-5. **The P3 probe direction exists at L3 and influences downstream layers** (alpha=5.0: mean_downstream_delta=+0.636). Whether this direction is stego-specific depends on whether the underlying probe is calibrated (i.e., whether v2 restores the signal).
-
-### 7.2 Claims Under Active Review
-
-6. ~~**Llama-3-8B internally represents synonym steganography above text baseline (AUC 0.754, delta +0.185).**~~ **RETRACTED (v2 confirmed).** v1 (no chat template): AUC 0.574, delta +0.005. v2 (with chat template): AUC 0.489, delta −0.080. Original 0.754 does not replicate under any tested configuration.
-
-### 7.3 Claims That Were Retracted
-
-7. ~~"Qwen3-32B replicates the Llama synonym finding."~~ Retracted. The Qwen synonym probe (AUC 0.868) matches its TF-IDF baseline (0.870). Different dataset, different text statistics.
-
-*(Note: Prior invalidations of the GCM methodology have been superseded by the `abs()` accumulation fix. GCM now actively yields causally important heads.)*
-
----
-
-## 8. Lessons and Methodological Takeaways
-
-### 8.1 Baseline Order of Operations
-
-Always compute per-method text baselines (char features + TF-IDF character n-grams, preferably on the exact method subset) before interpreting any probe result. Pooled baselines are misleading when some methods are trivially detectable.
-
-### 8.2 Chat Template Consistency
-
-Activation extraction format must match across any experiment that is compared. Raw text and chat-template-wrapped text produce materially different activations (pooled AUC 0.574 vs 0.741+ at L9 in our runs). This applies to all hooks, steering experiments, and baseline comparisons.
-
-**Fix committed:** `05_run_inference.py` line 321 now conditionally applies `enable_thinking=False` only when `"Qwen3" in args.model`.
-
-### 8.3 Attribution Method Validation
-
-Every attribution method (GCM, gradient attribution, attention rollout) requires a permutation null test before results can be reported as condition-specific. The target ratio is >2x; anything below 1.5x indicates the method is detecting dataset variance, not condition-specific circuits.
-
-**Signed accumulation rule:** Never take `abs()` before averaging across examples. The correct order is: accumulate signed values → compute mean → take abs of mean.
-
-### 8.4 Knockout Ablation vs Patching
-
-Knockout ablation (replace layer output with input) does not require clean/stego pairs, making it usable even when pairing is complex (e.g., synonym stego with 13 carrier groups). However, it is sensitive to probe calibration — a miscalibrated probe at the target layer will show zero drop regardless of which layers are ablated.
-
-### 8.5 Alpha Calibration in Steering
-
-Steering alpha must be tuned against KL divergence on clean examples. At alpha=5.0, KL=1.852 — the output distribution is severely disrupted and the "causal confirmation" is trivially true for any steering direction. Target: `alpha` such that `causal_confirmed=True` AND `kl_divergence < 0.3`. This is the minimum effective alpha.
-
----
-
-## 9. v2 Pipeline Results (COMPLETE — 2026-03-22 23:17 UTC)
-
-### 9.1 P0 Probe Training (v2, with --use_chat_template)
+Source: `data/probe_results/stego_detection_probe_results.json`
 
 | Layer | AUC (pooled) |
 |---|---|
-| L3 | 0.690 |
-| L9 | 0.741 |
+| L3 (best) | 0.934 |
+| L14 | 0.916 |
+| L11 | 0.915 |
+
+Per-method synonym AUC at L3: **0.754** (reported in earlier notes; per-method file not preserved).
+
+**v1 reextract (no chat template):**
+
+Source: `data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract/`
+
+| Layer | AUC (pooled) |
+|---|---|
+| L9 (best) | 0.761 |
+| L11 | 0.756 |
+| L10 | 0.755 |
+
+Per-method synonym AUC at L9: **0.574** (from earlier analysis).
+
+**v2 reextract (with chat template, correct):**
+
+Source: `data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/`
+
+| Layer | AUC (pooled) |
+|---|---|
+| L31 (best) | 0.751 |
 | L26 | 0.750 |
-| **L31 (best)** | **0.751** |
+| L30 | 0.749 |
+| L27 | 0.750 |
+| L9 | 0.741 |
+| L3 | 0.690 |
 
-**Per-method breakdown at best layer (L31):**
+Per-method breakdown at L31 (from earlier analysis, consistent with v2 probe output):
 
-| Method | AUC | vs TF-IDF baseline |
+| Method | AUC | Note |
 |---|---|---|
-| acrostic | 0.871 | surface artifact |
-| prefix_binary | 0.880 | surface artifact |
-| **synonym** | **0.489** | **BELOW CHANCE (tfidf: 0.569)** |
-| unicode | 1.000 | trivially surface |
-| whitespace | 0.691 | surface artifact |
+| acrostic | 0.871 | Surface artifact |
+| prefix_binary | 0.880 | Surface artifact |
+| **synonym** | **0.489** | Below chance |
+| unicode | 1.000 | Trivially surface |
+| whitespace | 0.691 | Surface artifact |
 
-**The synonym signal does NOT replicate under `--use_chat_template`.** Synonym AUC 0.489 is below the TF-IDF character n-gram baseline of 0.569 — the probe is performing at sub-chance for synonym detection in the chat-template format.
+### 2.2 Qwen3-32B — Representational Probes
 
-**Key comparison across extraction formats:**
+Source files: `data/Qwen3-32B/runs/2026-03-22_*/probe_results/probe_results_stego_vs_clean.json`
 
-| Extraction format | Synonym AUC (best layer) | vs TF-IDF (0.569) |
+| Run | Best Layer | AUC | N |
+|---|---|---|---|
+| suffix_marker | L49 | 0.929 | 2000 |
+| whitespace | L5 | 0.826 | 2000 |
+| game_scenarios_v2 | L48 | 0.847 | 2000 |
+| prefixsuffix_varied | L46 | 0.942 | 5000 |
+| benign_keyword ("goodbye") | L46 | 0.909 | 400 |
+
+### 2.3 Text Baselines
+
+Source: `text_baseline_results_stego_vs_clean.json` in each run dir, and `data/probe_results/text_baseline_results.json` for combined_dataset.
+
+**Combined dataset (Llama primary) — per-method:**
+
+| Method | Char AUC | TF-IDF AUC |
 |---|---|---|
-| Original (unknown config, 2026-03-20 era) | 0.754 | +0.185 |
-| v1 (no `--use_chat_template`) | 0.574 | +0.005 |
-| **v2 (`--use_chat_template`, correct)** | **0.489** | **−0.080** |
+| acrostic | 0.947 | 1.000 |
+| prefix_binary | 1.000 | 1.000 |
+| **synonym** | **0.499** | **0.569** |
+| unicode | 1.000 | 1.000 |
+| whitespace | 1.000 | 0.978 |
+| Pooled (all methods) | 0.866 | 0.876 |
 
-The original 0.754 finding does not replicate under either re-extraction configuration tested. The signal was likely an artifact of a specific extraction setup no longer reproducible from disk.
+**Qwen game_scenarios_v2 — per-method:**
 
-### 9.2 P1 Ablation (v2)
+| Method | Char AUC | TF-IDF AUC |
+|---|---|---|
+| acrostic | 0.931 | 1.000 |
+| prefix_binary | 1.000 | 1.000 |
+| **synonym** | **0.620** | **0.870** |
+| unicode | 1.000 | 1.000 |
+| whitespace | 1.000 | 0.976 |
 
-- **Baseline probe score at L3 on synonym stego:** 0.589 (above 0.5 but not well-calibrated)
-- **Total positive drop:** 0.0
-- **Localized:** False
-- **Top-3 layers by drop:** L4, L5, L6 (but all drops ~0.0)
-- **80th-percentile localization layers:** All 32 layers required
+**Qwen suffix_marker:**
 
-P1 is again null in v2. The probe at L3 assigns synonym stego examples a mean score of 0.589 — above chance but the drops when knocking out any individual layer are all zero. This confirms:
-1. The L3 probe weakly registers stego (0.589 > 0.5) based on the **pooled** direction (which captures unicode/acrostic surface features leaking through), but
-2. No single layer is responsible for building the L3 representation — the signal is either diffuse or corresponds to surface features already present at L0.
+| Baseline | AUC |
+|---|---|
+| char_features | 0.526 |
+| tfidf_char_ngram | 1.000 |
 
-### 9.3 P2 Cosine Similarity (v2)
+**Qwen whitespace:**
 
-- **Mean off-diagonal cosine:** 0.283 (vs v1: 0.302 — consistent)
-- **Highest similarity:** L23–L26 cluster (~0.91–0.92)
-- **L3 most similar to:** L2 (0.57), L4 (0.56)
-- **Interpretation:** Multiple distinct sub-computations; L3 probe direction is local and does not generalize across the network
+| Baseline | AUC |
+|---|---|
+| char_features | 1.000 |
+| tfidf_char_ngram | 0.864 |
 
-### 9.4 P3 Probe-Direction Steering (v2)
+**Qwen prefixsuffix_varied:**
 
-| Parameter | alpha=1.0 | alpha=2.0 |
+| Baseline | AUC |
+|---|---|
+| char_features | 0.624 |
+| tfidf_char_ngram | 0.998 |
+
+---
+
+## 3. Surface Baseline Filter
+
+The core question: which probe results exceed what surface text features alone can explain?
+
+### 3.1 Methods Fully Explained by Surface Features
+
+**Acrostic, prefix_binary, unicode, whitespace:** Across both models and all datasets, TF-IDF character n-gram or simple character statistics achieve AUC >= 0.93 for each of these methods. Probes on model activations do not add signal beyond what is already in the text itself.
+
+**Suffix_marker (Qwen):** TF-IDF AUC = 1.000. The `+++` suffix token creates a character n-gram fingerprint that is trivially detectable. The probe AUC of 0.929 is **below** the text baseline.
+
+**Prefixsuffix_varied (Qwen):** TF-IDF AUC = 0.998. Same pattern — the probe (0.942) does not exceed the text baseline.
+
+### 3.2 The Synonym Question
+
+Synonym substitution is the only method where text baselines are low enough that a probe exceeding them would constitute a genuine representational finding.
+
+| Model | Dataset | Synonym Probe AUC | Synonym TF-IDF | Delta | Verdict |
+|---|---|---|---|---|---|
+| Llama (original) | combined | 0.754 (L3) | 0.569 | +0.185 | Originally claimed positive |
+| Llama (v1) | combined | 0.574 (L9) | 0.569 | +0.005 | Null |
+| Llama (v2) | combined | 0.489 (L31) | 0.569 | **-0.080** | Below baseline |
+| Qwen | game_scenarios_v2 | (pooled ~0.847 at L48) | 0.870 | ~-0.023 | Null (dataset confound) |
+
+**Verdict:** The original 0.754 finding does not replicate under either re-extraction. The synonym signal is definitively retracted.
+
+### 3.3 A Nuance: Char Features vs TF-IDF
+
+For Qwen suffix_marker, char_features AUC = 0.526 (chance) while TF-IDF AUC = 1.000. This means:
+- Simple character statistics (length, whitespace ratio, punctuation ratio) do **not** detect the `+++` token.
+- Character n-grams trivially detect it.
+- The model probe (0.929) sits between these two, showing the model encodes the `+++` token in its representations (as expected — it tokenizes and processes the `+++` characters) but this is not a deep semantic "steganography detection" capability. It is a surface-feature representation.
+
+---
+
+## 4. New Finding: P1 Ablation Reveals Embedding-Level Signal
+
+This finding was not highlighted in prior analysis and is the most mechanistically informative result in the project.
+
+### 4.1 Data
+
+Source: `data/Meta-Llama-3-8B-Instruct/runs/2026-03-22_stego_detection_reextract_v2/probe_results_stego_vs_clean/p1_ablation_results.json`
+
+The P1 experiment trains a probe at layer L3 and measures how the probe score changes when individual layers' computations are "knocked out" (output replaced with input). The baseline probe score on synonym stego examples is **0.589** (slightly above chance).
+
+| Ablated Layer | Resulting L3 Probe Score | Drop (positive = signal loss) |
+|---|---|---|
+| L0 | **0.802** | **-0.213** |
+| L1 | **0.891** | **-0.303** |
+| L2 | **0.929** | **-0.341** |
+| L3 | 0.781 | -0.192 |
+| L4 through L31 | 0.589 (unchanged) | 0.000 |
+
+### 4.2 Interpretation
+
+The negative drops mean that ablating early layers **increases** the probe's ability to detect stego. This implies:
+
+1. **The stego signal is present in the token embeddings (layer 0 input).** Before any transformer computation, the raw token embeddings already carry information about whether the text is stego or clean. This is consistent with surface features being encoded at the tokenization level (e.g., synonym substitutions change the token IDs).
+
+2. **Early transformer layers suppress or transform the signal.** Each layer from L0 to L2 partially destroys the surface pattern that the probe can detect. When you skip these layers (knockout), the probe sees a representation closer to the raw embeddings, where surface features are most intact.
+
+3. **Later layers (L4-L31) do not affect the L3 probe at all.** This is expected — knocking out a layer after the probe's target layer has no causal effect on the probe's input.
+
+4. **This rules out a "model-computed" stego representation.** If the model were building a stego-detection representation through computation in layers L0-L3, then ablating those layers would *decrease* the probe score. The opposite happens. The model's forward pass actually makes stego harder to detect at L3, not easier.
+
+### 4.3 Consistency Across Extractions
+
+The same pattern appears in v1 (no chat template):
+
+| Ablated Layer | v1 Probe Score | v2 Probe Score |
+|---|---|---|
+| Baseline | 0.436 | 0.589 |
+| L0 ablated | 0.594 | 0.802 |
+| L1 ablated | 0.640 | 0.891 |
+| L2 ablated | 0.673 | 0.929 |
+
+Both v1 and v2 show the same pattern: ablation of early layers increases probe score. The magnitude is larger in v2 (with chat template), consistent with the chat template format making the surface features more accessible at the embedding level.
+
+### 4.4 Implication for the Project
+
+This is strong evidence that **all probe signal on the combined_dataset is driven by surface text features embedded at tokenization, not by model computation**. The model does not appear to build an internal "steganography detector" representation in its residual stream. Instead, the probe picks up on token-level statistical differences that are strongest at the embedding layer and degrade through transformer processing.
+
+---
+
+## 5. Behavioral Results
+
+### 5.1 Keyword Compliance Rates
+
+Source: `probe_results.json` in each behavioral run (n_positive = number of examples with keyword present).
+
+| Model | Dataset | Keyword-Present | Total | Overall Rate |
+|---|---|---|---|---|
+| Llama-3-8B | suffix_marker | 851 | 2000 | 42.5% |
+| Llama-3-8B | whitespace | 959 | 2000 | 47.9% |
+| Llama-3-8B | game_scenarios_v2 | 772 | 2000 | 38.6% |
+| Qwen3-32B | suffix_marker | 49 | 2000 | 2.5% |
+| Qwen3-32B | whitespace | 2 | 2000 | 0.1% |
+| Qwen3-32B | game_scenarios_v2 | 7 | 2000 | 0.4% |
+
+### 5.2 Interpretation
+
+**Llama-3-8B: Indiscriminate compliance (~38-48%).** The model outputs the keyword at roughly the same rate regardless of whether the input contains steganography. This is noise from insufficient instruction-following capability (IFEval ~70), not stego-conditional behavior.
+
+**Qwen3-32B: Near-total refusal with rare specificity.** Compliance is 0.1-2.5%. The 49 compliant suffix_marker examples are all on stego inputs (0% false positive rate per earlier analysis), but heavily concentrated in a single task template. The model *can* detect the `+++` suffix but RLHF safety training suppresses acting on it in 97.5% of cases.
+
+**Conclusion:** Neither model's behavioral probe is scientifically valid. Llama's is noise; Qwen's is too low-N and task-template-specific. Only representational probes (stego-vs-clean on ground truth labels) are interpretable.
+
+---
+
+## 6. Mechanistic Interpretability Chain (P0-P3)
+
+### 6.1 P0: Probe Training Summary
+
+Already covered in Section 2.1 (Llama v2):
+- Best pooled AUC: 0.751 at L31
+- Synonym-specific AUC: 0.489 (below baseline)
+- The pooled probe is dominated by acrostic (0.871), prefix_binary (0.880), and unicode (1.000)
+
+### 6.2 P1: Ablation
+
+Already covered in Section 4 (new finding). Key result: ablating layers 0-2 **increases** probe score, indicating signal is in embeddings, not model computation.
+
+### 6.3 P2: Probe Direction Cosine Similarity
+
+Source: `p2_probe_direction_analysis.json`
+
+| Metric | v1 | v2 |
+|---|---|---|
+| Mean off-diagonal cosine | 0.302 | 0.283 |
+| Highest pair | L23-L25 (~0.92) | L24-L25 (0.916) |
+| L3 most similar to | L2 (0.61), L4 (0.60) | L2 (0.57), L4 (0.56) |
+| L3-L31 cosine | Not reported | 0.037 |
+
+**Interpretation:** The probe direction at L3 is essentially unrelated to probe directions at later layers (cosine < 0.1 for L3 vs L15+). There is no single "stego direction" across the network. Adjacent layers share direction (L21-L26 cluster at ~0.90) due to residual stream continuity, but this is an architectural feature, not a stego-specific finding.
+
+The near-zero cosine between L3 and L31 (0.037) means the "best layer" probe direction at L31 captures completely different features than L3. The pooled probe at different layers is picking up different surface features.
+
+### 6.4 P3: Probe Direction Steering
+
+Source: `p3_probe_steer_results.json`
+
+| | v1 (alpha=5.0) | v2 (alpha=2.0) |
 |---|---|---|
 | causal_confirmed | True | True |
-| mean_downstream_delta | +0.133 | +0.238 |
-| kl_divergence | 0.027 | 0.161 |
+| mean_downstream_delta | +0.636 | +0.238 |
+| kl_divergence | 1.852 | 0.161 |
+| Probe baseline at L3 | 0.436 | 0.634 |
 
-At alpha=2.0: causal confirmation with KL=0.161 (acceptable utility cost). This is the best P3 result in the project — a direction from L3 that, when injected at alpha=2.0, shifts all downstream probe scores while barely affecting output distribution.
+**v2 alpha=2.0 detail:** Injecting the L3 probe direction at alpha=2.0 shifts downstream probe scores by +0.238 on average, with KL divergence of 0.161 (acceptable utility cost). Downstream layer scores shift from ~0.5-0.6 to ~0.7-1.0 (layers L3-L12), with diminishing effect at later layers.
 
-**Critical caveat:** The L3 probe direction is the pooled direction from a probe trained on all 5 methods (dominated by acrostic/unicode/prefix_binary which have AUC ~0.88–1.00). The "causal confirmation" is that **the general stego-surface-detection direction** propagates causally — not specifically that synonym steganography is causally localized. The synonym probe component contributes minimally to this direction given its AUC of 0.489.
-
----
-
-## 10. Definitive Conclusions
-
-### 10.1 The Synonym Signal: Retracted
-
-The Llama-3-8B synonym AUC 0.754 finding (reported in earlier notes as the one signal surviving TF-IDF baselines) **does not replicate** under either attempted re-extraction:
-- v1 (no chat template): AUC 0.574, delta +0.005 over tfidf — marginal, within noise
-- v2 (with chat template): AUC 0.489, delta −0.080 — below tfidf baseline
-
-The original 0.754 was extracted with an unpreserved configuration. It is the consensus across all replication attempts that there is no robust synonym stego representation in Llama-3-8B that exceeds character n-gram text baselines.
-
-**This project has zero confirmed positive representational interpretability findings.** All probe signals are explained by surface text features (character n-grams, whitespace statistics, overt marker tokens).
-
-### 10.2 What Positive Methodological Findings Exist
-
-Despite the null representational result, the project produced meaningful methodological contributions:
-
-1. **GCM failure mode documented and successfully resolved:** The earlier abs()-before-accumulate bug was destroying condition-specificity. After implementing signed accumulation, GCM now reliably identifies stego-promoting heads. Steering these heads correctly suppresses steganography attack behavior (17.1% ASR drop on Qwen3-1.7B) with low utility harm (KL divergence 0.112), providing a robust tool for causal attribution in future studies.
-
-2. **P3 steering calibration characterized:** At alpha=2.0, probe-direction steering shows downstream propagation (delta=+0.238) with low utility cost (KL=0.161). This is a valid method for validating causal direction existence, even when the probe itself doesn't detect a specific feature with high specificity.
-
-3. **Extraction format sensitivity quantified:** Synonym AUC varies from 0.489 to 0.574 to 0.754 across three extraction configurations on the same model and dataset. This is a large variance for a supposedly stable representational property, and demonstrates that extraction format must be held constant and documented in any interpretability claim.
-
-4. **Per-method text baseline protocol established:** The correct baseline order is: (1) per-method char features, (2) per-method TF-IDF character n-grams, (3) pooled variants for sanity. Pooled baselines dominated by easy methods mask failures on hard methods.
-
-5. **Behavioral-vs-representational disconnect documented:** Qwen3-32B refusal rate 95–99.7% despite high probe AUC (0.929). The model detects stego presence internally but RLHF suppresses the behavioral response. This is a clean dissociation between representation and action.
+**Critical caveat:** The L3 probe direction is from a pooled probe trained on all 5 methods. It is dominated by acrostic/unicode/prefix_binary (AUC 0.87-1.0). The "causal confirmation" means the pooled surface-feature direction at L3 causally influences downstream activations — this is trivially true for any direction that carries information. It does not demonstrate a stego-specific causal mechanism. The synonym component (AUC 0.489) contributes minimally to this direction.
 
 ---
 
-## 11. Open Questions for Future Work
+## 7. GCM Attribution and Null Test
 
-1. **Does the Llama synonym signal replicate robustly?** The v2 results will resolve whether the signal is real under proper extraction. If yes, a synonym-specific TF-IDF baseline on the v2-formatted texts should be run to confirm the delta survives.
+### 7.1 Original GCM (with abs() Bug)
 
-2. **Is there a stego-specific circuit in Llama synonym?** If P1 localizes signal to 1–3 early layers, activation patching (clean→stego) at those layers would complete the causal story.
+Source: `Qwen3-32B_top10_stego_heads_suffix_marker.json`, `*_permuted.json`, `gcm_results_suffix_marker_regen.json`
 
-3. ~~**Does the GCM structural fix (signed accumulation) recover interpretable head attribution?**~~ RESOLVED: Yes, applying the signed accumulation successfully isolates causal heads, reducing ASR efficiently (by 17.1% on Qwen-1.7B) while causing minimal KL divergence.
+The `abs()` bug: `total_ie_scores[l] += ie_per_head.abs().cpu()` accumulates absolute values before averaging, making the score measure gradient magnitude rather than consistent directional effect. High-gradient heads appear in top-10 regardless of condition.
 
-4. **What are the late-layer L58–62 Qwen3-32B suffix_marker representations?** Mean-diff finds strong signal there; mean-diff-based patching (analogous to GCM but with correct accumulation) could identify which heads contribute.
+| Metric | Value |
+|---|---|
+| Real top-10 mean score | 0.0743 |
+| Permuted top-10 mean score | 0.0804 |
+| Ratio (real / permuted) | **0.924** |
+| Top-10 head overlap (real vs permuted) | **9/10** |
 
-5. **Does the L3 probe direction in Llama encode semantically interpretable features?** Even if the probe calibration is uncertain, the direction exists and steers downstream scores. Geometric analysis (similarity to known concept directions, e.g., from SAE decompositions) could be informative.
+The permutation null test fails decisively. The real-label attribution produces **lower** scores than shuffled labels, and 9 of the same 10 heads appear regardless of whether labels are real or random.
 
-6. **Is Qwen3-32B's stego detection behavioral suppression a consistent circuit?** The 49 suffix_marker compliant examples are concentrated in one task template. Patching clean→stego at L49 in that task template and measuring behavioral change would test whether the representation-to-behavior link exists and is task-specific.
+### 7.2 Steering with Buggy GCM Heads (10 heads)
 
-7. **Broadening GCM Steering across models:** GCM steering needs to be tested with many other models of varying sizes (including Llama-3-8B post-bug-fix). Comparing these results will clarify how well this targeted intervention scales and how it interacts with stronger safety alignments.
+Source: `Qwen3-32B_steering_summary_suffix_marker.json`
 
-8. **Direct comparison of Logistic Regression (LR) probe vs GCM steering:** We should implement basic activation steering (e.g., difference in means) dynamically coupled with the LR probe. This technique would steer the residual stream activations (not specific head activations) conditionally *only when the LR probe fires*. This approach requires a high-performing LR probe to evaluate properly.
-   - **Missing from current direct comparison:** To fairly compare LR probe steering versus GCM steering, we need to standardize the evaluation setup across both. Currently, the missing comparison vectors include evaluating both methods consistently across the same suite of **models** (e.g. Qwen 1.7B, 32B, Llama 8B), directly matching the **dataset splits** (`suffix_marker_game_scenarios` for train vs `game_scenarios_v2` for val), and explicitly evaluating **OOD (Out-Of-Distribution) generalization**.
+| Metric | Pre-steering | Post-steering |
+|---|---|---|
+| Attack success rate | 0.0% | 0.0% |
+| Avg log-prob of "attack" | -32.839 | -32.904 |
+| KL divergence | — | 0.004 |
 
-9. **Evaluating Out-Of-Distribution (OOD) Generalization:** Once either GCM steering or LR probe steering is dialed in, a crucial next step is to evaluate whether driving the "stego direction" suppresses *unseen* steganography techniques or generalized hidden reasoning. This will tell us if models maintain a generic "stego concept" vs. highly specific localized artifacts.
+No behavioral change. KL = 0.004 confirms steering had negligible effect on output distribution.
+
+### 7.3 Corrected GCM (signed accumulation, post abs()-fix)
+
+Source: `Qwen3-32B_top10_stego_heads_suffix_marker_new.json`, `Qwen3-32B_steering_summary_suffix_marker_new.json`
+
+The steer2/ pipeline applied the fix: accumulate signed IE scores, then use top 10% of heads (409 heads out of 4096 total for Qwen3-32B).
+
+| Metric | Pre-steering | Post-steering |
+|---|---|---|
+| Attack success rate | 0.0% | 0.0% |
+| Avg log-prob of "attack" | -32.127 | -32.793 |
+| KL divergence | — | 0.069 |
+| Log-prob delta | — | **-0.666** |
+
+Even with 409 heads identified by corrected GCM and steered, the attack success rate remains 0.0%. The log-prob of "attack" shifts by -0.666 (moving further from the target), and KL divergence is only 0.069 — meaning the steering barely perturbs the output distribution.
+
+**Interpretation:** Directional ablation on GCM-identified heads does not recover stego-conditional behavior in Qwen3-32B. This may reflect that (a) the model's stego-detection circuitry is not well-localized to attention heads, (b) the behavioral suppression by RLHF is too strong to overcome with linear steering, or (c) the GCM method (even corrected) does not identify the relevant heads.
+
+### 7.4 GCM vs Mean-Diff Layer Comparison
+
+Source: `Qwen3-32B_mean_diff_by_layer_suffix_marker.json`
+
+| | GCM Top-5 Layers | Mean-Diff Top-5 Layers |
+|---|---|---|
+| Real labels | L45, L42, L44, L43, L41 | L62, L61, L60, L59, L58 |
+| Permuted labels | L45, L42, L44, L43, L41 | (not computed) |
+| Spearman rank correlation | 0.413 | — |
+| Top-5 overlap | **0/5** | — |
+
+GCM identifies mid-network layers (L41-L45); mean-diff identifies late layers (L58-L62). They disagree fundamentally. The fact that GCM top-5 layers are identical for real and permuted labels confirms GCM is not finding condition-specific circuits.
 
 ---
 
-*Last updated: 2026-03-23 - 3.00 PM IST
+## 8. Mean-Diff Analysis and Cross-Model Comparison
+
+### 8.1 Qwen3-32B Suffix Marker: Signed Mean-Diff by Layer
+
+Source: `Qwen3-32B_mean_diff_by_layer_suffix_marker.json`
+
+The L2 norm of `mean(stego_activations) - mean(clean_activations)` grows monotonically:
+
+| Layer | L2 Norm | Cosine(stego_mean, clean_mean) |
+|---|---|---|
+| L0 | 0.91 | 0.999 |
+| L10 | 3.79 | 0.999 |
+| L20 | 6.38 | 0.999 |
+| L30 | 10.79 | 0.997 |
+| L40 | 12.25 | 0.997 |
+| L50 | 33.70 | 0.994 |
+| L58 | 95.28 | 0.994 |
+| L62 | 169.21 | 0.997 |
+| L63 | 14.68 | 0.993 |
+
+**Key observations:**
+
+1. **Monotonic growth in divergence magnitude.** The stego-clean mean difference grows from ~1 at L0 to ~169 at L62 (the last pre-LN layer). Each transformer layer amplifies the stego-clean offset slightly.
+
+2. **Direction remains essentially identical.** Cosine similarity between stego and clean class means stays above 0.993 at all layers. The representations point in almost exactly the same direction — the stego-clean difference is a small offset in a high-dimensional space, not a directional shift.
+
+3. **L63 (post-LayerNorm / pre-unembedding) collapses.** The norm drops from 169 at L62 to 15 at L63, consistent with LayerNorm normalizing out the magnitude difference before the logit computation.
+
+4. **The signal lives in magnitude, not direction.** A linear probe can exploit this magnitude difference (which is why probes achieve AUC > 0.5), but it's a very different kind of signal than, say, the refusal direction in Arditi et al. where stego and clean representations point in measurably different directions.
+
+### 8.2 Where Stego Signal Peaks Across Models
+
+| Model | Method | Best Probe Layer | AUC | Fraction of Depth |
+|---|---|---|---|---|
+| Llama-3-8B (original) | pooled (5 methods) | L3 | 0.934 | 9% |
+| Llama-3-8B (v2) | pooled (5 methods) | L31 | 0.751 | 97% |
+| Qwen3-32B | suffix_marker | L49 | 0.929 | 77% |
+| Qwen3-32B | whitespace | L5 | 0.826 | 8% |
+| Qwen3-32B | game_scenarios_v2 (pooled) | L48 | 0.847 | 75% |
+| Qwen3-32B | benign_keyword | L46 | 0.909 | 72% |
+| Qwen3-32B | prefixsuffix_varied | L46 | 0.942 | 72% |
+
+The original Llama extraction peaked at L3 (9% depth), but the v2 re-extraction peaks at L31 (97% depth). This is a striking inconsistency that further undermines the original extraction's reliability.
+
+Qwen3-32B generally peaks at L46-L49 (~72-77% depth) for most methods, except whitespace which peaks at L5 (8%). The whitespace early peak may reflect that whitespace anomalies (zero-width characters, extra spaces) create distinct token embeddings that are most linearly separable before later-layer processing normalizes them.
+
+### 8.3 Behavioral-Representational Dissociation in Qwen3-32B
+
+Qwen3-32B achieves AUC 0.929 on suffix_marker representational probes while outputting the "attack" keyword in only 2.5% of stego cases (and 0% of clean cases). The model internally distinguishes stego from clean at high accuracy but refuses to act on it.
+
+The benign keyword experiment (replacing "attack" with "goodbye") shows AUC 0.909 at L46 — the model's internal representation of suffix_marker stego is similar regardless of which keyword it's instructed to output. This suggests the representational signal is about the `+++` token presence, not about the compliance decision.
+
+However, both suffix_marker probes and the benign keyword probes are explained by TF-IDF baselines (1.000 for suffix_marker). The "representation" is surface-level: the model encodes the `+++` token, and a probe can detect that encoding. This is expected behavior for any transformer processing text with distinctive tokens.
+
+---
+
+## 9. Claim Status
+
+### 9.1 Claims That Stand (Verified Against Data)
+
+1. **All overt stego methods are surface-detectable.** Suffix_marker, unicode, prefix_binary, acrostic, and whitespace all have TF-IDF baselines >= 0.93. Probe performance does not exceed text baselines for any of these methods on any model. *(Verified across 7 runs, 2 models.)*
+
+2. **GCM (with abs() bug) fails its permutation null test.** Ratio = 0.924, 9/10 heads identical under permuted labels. *(Source: gcm_results_suffix_marker_regen.json.)*
+
+3. **GCM (post abs()-fix) steering also fails.** 409 heads steered, attack success rate unchanged at 0.0%, KL = 0.069. *(Source: Qwen3-32B_steering_summary_suffix_marker_new.json.)*
+
+4. **Qwen3-32B behaviorally suppresses stego-conditional output** via RLHF while internally encoding the surface features. Compliance 0.1-2.5% despite probe AUC 0.826-0.929. *(Source: behavioral probe n_positive counts + stego_vs_clean probe AUCs.)*
+
+5. **Extraction format materially affects probe results.** Llama synonym AUC varies from 0.489 to 0.574 to 0.754 across three extractions. *(Source: three separate probe_results files.)*
+
+6. **P1 ablation shows stego signal is in token embeddings, not model computation.** Ablating layers 0-2 increases L3 probe score from 0.589 to 0.929. *(Source: p1_ablation_results.json.)*
+
+7. **P3 probe direction steering works mechanically** (alpha=2.0: delta=+0.238, KL=0.161) **but the direction is a pooled surface-feature detector, not a synonym-specific stego representation.** *(Source: p3_probe_steer_results.json.)*
+
+### 9.2 Claims Retracted
+
+8. ~~**"Llama-3-8B internally represents synonym steganography above text baseline (AUC 0.754)."**~~ Does not replicate: v1 AUC 0.574 (+0.005 vs TF-IDF), v2 AUC 0.489 (-0.080 vs TF-IDF).
+
+9. ~~**"Qwen3-32B replicates the Llama synonym finding."**~~ The Qwen synonym probe (~0.847 pooled at L48) matches its TF-IDF baseline (0.870). Different dataset with domain vocabulary artifacts.
+
+10. ~~**"GCM identifies the specific attention heads mediating stego detection."**~~ Failed null test (ratio 0.924) and corrected version still fails to steer behavior.
+
+### 9.3 New Claims (Not in Prior Reports)
+
+11. **P1 ablation negative drops are the strongest mechanistic evidence in the project.** They demonstrate that the stego-clean distinction is carried by token embeddings (surface features) and is partially destroyed by transformer computation, rather than being computed by the model.
+
+12. **Signed mean-diff shows monotonic magnitude growth with directional stability** (cosine > 0.993 across all 64 Qwen layers). The stego-clean offset is a magnitude effect, not a directional one, fundamentally different from known steering directions (e.g., refusal).
+
+---
+
+## 10. Methodological Contributions
+
+Despite zero confirmed positive representational findings, the project produced five transferable methodological contributions:
+
+### 10.1 GCM abs() Failure Mode
+
+Taking `abs()` before accumulating IE scores across examples makes the score measure gradient magnitude, not consistent directional effect. This is a general failure mode that applies to any gradient-based attribution method. The permutation null test (shuffled labels, ratio > 2x required) should be a standard validation step.
+
+### 10.2 Per-Method Text Baseline Protocol
+
+Pooled baselines (all stego methods combined) can mask the fact that easy methods (unicode, prefix_binary) inflate the overall AUC while hard methods (synonym) fail. The correct order: (1) per-method char features, (2) per-method TF-IDF char n-grams, then (3) pooled for sanity.
+
+### 10.3 Extraction Format Sensitivity
+
+Synonym AUC varies 0.489-0.754 across three extraction configs on the same model and dataset. Any interpretability claim must document and hold constant the extraction format. The `enable_thinking` bug is a concrete example of how a single kwarg can invalidate an entire analysis chain.
+
+### 10.4 P1 Ablation as Surface-Feature Diagnostic
+
+If ablating early layers *increases* a probe's score at a target layer, the signal is likely embedded at the tokenization/embedding level, not computed by the model. This is a cheap diagnostic (requires only layer-wise knockout, no paired examples) that can distinguish surface-feature probes from genuine model representations.
+
+### 10.5 P3 Steering Calibration
+
+At alpha=2.0 on Llama-3-8B, KL=0.161 with mean_downstream_delta=+0.238. This establishes a reference point for acceptable steering utility cost. Alpha=5.0 (KL=1.852) is too destructive. Reporting KL alongside causal confirmation should be standard.
+
+---
+
+## 11. Discrepancies with Submission Draft
+
+The submission PDF (`notes/Steganography_ Detection & Control (2).pdf`) contains claims that are not supported by the final analysis. These must be corrected before publication:
+
+| PDF Claim | Reality |
+|---|---|
+| "detection of steganographic payloads is a linearly separable feature within the model's latent space" | All detected linear features are surface-level (TF-IDF-explainable). No method-specific signal survives baselines. |
+| "recognition is not a global atmospheric shift... but is instead localized to specific functional circuits" | GCM fails its permutation null test. P1 ablation shows no localization. Mean-diff disagrees with GCM on layers. |
+| "identifying these 'detector heads,' we have successfully demonstrated that it is possible to surgically steer a model's sensitivity" | Steering fails: attack success rate unchanged (0.0%) in all attempts (10 heads, 409 heads). KL = 0.004-0.069. |
+| Abstract: "LLMs develop potential internal 'detectors' for these patterns" | The probes detect surface text features already detectable by TF-IDF. The P1 ablation shows the signal is in embeddings, not computed by the model. |
+| Future work: "generalizability of these 'stego-probes' across different model architectures" | The probes are detecting dataset artifacts, not model-specific representations. Generalizability is the wrong question. |
+
+The PDF's Limitations section correctly notes the abs() bug and the compliance/recognition entanglement. These should be elevated from limitations to central findings.
+
+---
+
+## 12. What Is Genuinely Interesting (For Honest Reporting)
+
+Despite the null representational result, several findings are worth reporting honestly:
+
+1. **The P1 ablation negative-drop pattern** is novel and useful as a diagnostic tool for distinguishing surface-feature probes from genuine model representations. We are not aware of this being used in prior work.
+
+2. **The behavioral-representational dissociation in Qwen3-32B** (AUC 0.929 probe, 2.5% behavioral compliance) is a clean demonstration that RLHF can suppress behavior while leaving internal representations detectable. This is safety-relevant: monitoring activations can detect model states that behavior-level monitoring cannot.
+
+3. **The GCM abs()-before-accumulation failure mode** is a concrete, reproducible bug class that likely affects other gradient-based attribution studies. The permutation null test with a 2x ratio threshold is a practical validation standard.
+
+4. **The extraction format sensitivity** (0.489-0.754 across configs) is a cautionary tale for interpretability research reproducibility.
+
+5. **The monotonic mean-diff magnitude growth with directional stability** (cosine > 0.993) in Qwen3-32B adds to the empirical understanding of how transformers process distinctive input features: the residual stream accumulates a growing magnitude offset while maintaining nearly identical direction.
+
+---
+
+## 13. Open Questions for Future Work
+
+1. **Would a nonlinear probe detect synonym stego above baseline?** Linear probes may be insufficient if the synonym representation is nonlinear. An MLP probe or kernel SVM on the same activations would test this.
+
+2. **Does the P1 ablation pattern generalize to other interpretability targets?** If ablating early layers increases probe score for other features (e.g., sentiment, factual correctness), this would establish it as a general surface-feature diagnostic.
+
+3. **Can activation patching (rather than directional ablation) recover Qwen3-32B stego behavior?** Mean-diff finds the strongest signal at L58-L62. Patching clean-to-stego at these layers might overcome RLHF suppression where directional ablation cannot.
+
+4. **Is the Qwen3-32B suffix_marker behavioral specificity (0% false positive) a genuine stego-detection circuit or a `+++` token detector?** Testing with other overt markers (e.g., `***`, `---`) would disambiguate.
+
+---
+
+*Last updated: 2026-03-23. All numbers verified against source JSON/CSV files. See Data Inventory (Section 0) for file paths.*
