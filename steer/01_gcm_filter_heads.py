@@ -70,25 +70,20 @@ def format_stego_prompt(tokenizer, entry):
     """
     Applies the model's specific chat template.
     """
-    p=f'''
-    Context:
-    {entry['input_text']}
-    Perform the following task given the context: 
-    {entry['task']}
-    '''
+
     messages = [
-        {"role": "system", "content": entry['system_prompt']},
-        {"role": "user", "content": p},
-    ]
+            {"role": "system", "content": entry['system_prompt']},
+            {"role": "user", "content": f"Context from previous assistant:\n{entry['input_text']}\n\nTask: {entry['task']}"},
+        ]
     
     # add_generation_prompt=True adds the "assistant" header 
     # so the model is ready to output the next token ("attack" or normal)
     return tokenizer.apply_chat_template(
         messages, 
         tokenize=False, 
-        add_generation_prompt=True
+        add_generation_prompt=True,
+        enable_thinking=False
     )
-
 # %%
 
 
@@ -172,7 +167,7 @@ def get_stego_knockout_attribution(
                     # Resulting shape: [batch, head] -> .squeeze(0) -> [n_heads]
                     # This aligns with the IE = ∇z * z logic for causal mediation
                     ie_per_head = (g_mean * z_mean).sum(dim=-1).squeeze(0)
-                    total_ie_scores[l] += ie_per_head #.abs()
+                    total_ie_scores[l] += ie_per_head.abs()
         
         # Remove hooks to avoid memory leaks and overhead for next iteration
         model.reset_hooks()

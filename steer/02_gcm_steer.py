@@ -2,7 +2,7 @@
 import os
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 # %%
 import torch
@@ -188,7 +188,7 @@ def validate_stego_behavior(model, dataset_pairs, max_gen_tokens=100):
     model.eval()
     results = {"count_attack": 0, "total": 0, "log_prob_at_end": []}
     
-    target_token_str = "attack"
+    target_token_str = config['target_token']
     target_id = model.to_single_token(target_token_str) if target_token_str in model.tokenizer.get_vocab() else model.to_single_token(" "+target_token_str)
 
 
@@ -302,13 +302,13 @@ if __name__ == "__main__":
     val_dataset_pairs = prepare_stego_pairs(val_jsonl_data_path, num_samples=val_num_samples)
 
     # %%
-    with open(f"../data/{model_id.split('/')[-1]}_top{k}_stego_heads_results.json", 'r') as file:
+    with open(f"../data/{model_id.split('/')[-1]}_top{k}_stego_heads_results_{config['target_token']}.json", 'r') as file:
         top_heads = json.load(file)
 
     with torch.no_grad():
         # %%
         steering_vectors = compute_stego_steering_vectors(model, dataset_pairs, top_heads)
-        save_path = f"../data/{model_id.split('/')[-1]}_stego_steering_vectors.pt"
+        save_path = f"../data/{model_id.split('/')[-1]}_stego_steering_vectors_{config['target_token']}.pt"
         torch.save(steering_vectors, save_path)
 
         # %%
@@ -334,7 +334,7 @@ if __name__ == "__main__":
         print(results_df)
 
         # %%
-        results_df.to_csv(f"../data/{model_id.split('/')[-1]}_top{k}_stego_steering_results.csv", index=False)
+        results_df.to_csv(f"../data/{model_id.split('/')[-1]}_top{k}_stego_steering_results_{config['target_token']}.csv", index=False)
 
         # %%
         kl_res=calculate_kl_divergence(model, val_dataset_pairs, steering_vectors, alpha=1.0)
@@ -342,6 +342,6 @@ if __name__ == "__main__":
 
         # %%
         kl_df = pd.DataFrame({"kl_divergence": [kl_res]})
-        kl_df.to_csv(f"../data/{model_id.split('/')[-1]}_top{k}_stego_steering_kl_divergence.csv", index=False)
+        kl_df.to_csv(f"../data/{model_id.split('/')[-1]}_top{k}_stego_steering_kl_divergence_{config['target_token']}.csv", index=False)
 
 
